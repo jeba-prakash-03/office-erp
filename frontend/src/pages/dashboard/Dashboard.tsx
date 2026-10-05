@@ -62,8 +62,8 @@ export const Dashboard: React.FC = () => {
   const handleCheckIn = async () => {
     setActionLoading(true);
     try {
-      const res = await attendanceApi.checkIn();
-      showToast(res.data.message || 'Checked in successfully!', 'success');
+      const res = await attendanceApi.clockIn({});
+      showToast(res.data?.message || 'Checked in successfully!', 'success');
       fetchStats();
     } catch (err: any) {
       showToast(err.message || 'Check-in failed', 'error');
@@ -75,8 +75,8 @@ export const Dashboard: React.FC = () => {
   const handleCheckOut = async () => {
     setActionLoading(true);
     try {
-      const res = await attendanceApi.checkOut();
-      showToast(res.data.message || 'Checked out successfully!', 'success');
+      const res = await attendanceApi.clockOut({});
+      showToast(res.data?.message || 'Checked out successfully!', 'success');
       fetchStats();
     } catch (err: any) {
       showToast(err.message || 'Check-out failed', 'error');

@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { LoadingState } from './LoadingState';
 import { EmptyState } from './EmptyState';
+import { ErrorState } from './ErrorState';
 
 export interface Column<T> {
   key?: string;
@@ -39,6 +40,8 @@ export function DataTable<T extends { id?: string | number }>({
   columns,
   data = [],
   loading,
+  error,
+  onRetry,
   keyField = 'id',
   emptyTitle,
   emptyDescription,
@@ -49,7 +52,7 @@ export function DataTable<T extends { id?: string | number }>({
   searchPlaceholder = 'Search records...',
   headerActions,
   pagination,
-}: DataTableProps<T>) {
+}: DataTableProps<T> & { error?: string | null; onRetry?: () => void }) {
   const displayEmptyTitle = emptyTitle || 'No records found';
   const displayEmptyDesc = emptyDescription || emptyMessage;
 
@@ -57,10 +60,10 @@ export function DataTable<T extends { id?: string | number }>({
   const pageSize = pagination?.limit || 15;
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden flex flex-col transition-all">
       {/* Table Toolbar */}
       {(onSearchChange || headerActions) && (
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
           {onSearchChange ? (
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -69,7 +72,7 @@ export function DataTable<T extends { id?: string | number }>({
                 value={searchValue || ''}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                className="w-full pl-9 pr-4 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
               />
             </div>
           ) : <div />}
@@ -82,39 +85,45 @@ export function DataTable<T extends { id?: string | number }>({
       )}
 
       {/* Table Content */}
-      <div className="overflow-x-auto min-h-[220px] relative">
-        {loading ? (
-          <div className="py-20 flex justify-center items-center">
-            <LoadingState text="Loading data..." />
+      <div className="overflow-x-auto min-h-[200px] relative">
+        {error ? (
+          <div className="p-6">
+            <ErrorState title="Unable to Load Table Data" message={error} onRetry={onRetry} />
+          </div>
+        ) : loading ? (
+          <div className="p-4 space-y-3">
+            {[1, 2, 3, 4, 5].map((s) => (
+              <div key={s} className="h-10 bg-slate-100 dark:bg-slate-800/60 rounded-lg animate-pulse" />
+            ))}
           </div>
         ) : !data || data.length === 0 ? (
           <div className="py-16">
             <EmptyState title={displayEmptyTitle} description={displayEmptyDesc} action={emptyAction} />
           </div>
         ) : (
-          <table className="w-full text-left border-collapse text-sm">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider">
+              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
                 {columns.map((col, idx) => (
                   <th
                     key={col.key || idx}
-                    className={`py-3.5 px-4 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}
+                    className={`py-3 px-4 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}
                   >
                     {col.header}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {data.map((item: any, rowIdx) => (
                 <tr
                   key={item[keyField] !== undefined ? String(item[keyField]) : rowIdx}
-                  className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                 >
                   {columns.map((col, colIdx) => (
                     <td
                       key={col.key || colIdx}
-                      className={`py-3.5 px-4 text-slate-700 dark:text-slate-300 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}
+                      className={`py-3 px-4 text-slate-700 dark:text-slate-300 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}
                     >
                       {col.accessor
                         ? col.accessor(item)
