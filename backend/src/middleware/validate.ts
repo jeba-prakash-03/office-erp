@@ -16,8 +16,26 @@ export function validate(schema: AnyZodObject) {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        const issues = error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
-        return next(new AppError(`Validation failed: ${issues}`, 422));
+        const fields: Record<string, string> = {};
+        for (const issue of error.issues) {
+          const pathSegments = issue.path.filter((p) => p !== 'body' && p !== 'query' && p !== 'params');
+          const fieldKey = pathSegments.join('.') || 'root';
+          if (!fields[fieldKey]) {
+            fields[fieldKey] = issue.message;
+          }
+        }
+        const issuesSummary = Object.entries(fields)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ');
+        
+        return next(
+          new AppError(
+            `Validation error: ${issuesSummary}`,
+            400,
+            'VALIDATION_ERROR',
+            { fields }
+          )
+        );
       }
       return next(error);
     }

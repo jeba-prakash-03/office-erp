@@ -107,8 +107,10 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/reports', reportsRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/company', companyRoutes);
+app.use('/api/settings', companyRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/audit-logs', auditRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/approvals', approvalsRoutes);
 
@@ -121,13 +123,15 @@ app.use('/api/*', (req, res) => {
 app.use(errorHandler);
 
 const PORT = config.port;
-app.listen(PORT, () => {
-  logger.info(`========================================================`);
-  logger.info(` Office Management & ERP Backend Server Running`);
-  logger.info(` Port: ${PORT}`);
-  logger.info(` Environment: ${config.nodeEnv}`);
-  logger.info(` Database: ${config.db.database} on ${config.db.host}:${config.db.port}`);
-  logger.info(`========================================================`);
-});
+if (process.env.NODE_ENV !== 'test' && !process.env.TEST_MODE) {
+  app.listen(PORT, () => {
+    logger.info(`========================================================`);
+    logger.info(` Office Management & ERP Backend Server Running`);
+    logger.info(` Port: ${PORT}`);
+    logger.info(` Environment: ${config.nodeEnv}`);
+    logger.info(` Database: ${config.db.database} on ${config.db.host}:${config.db.port}`);
+    logger.info(`========================================================`);
+  });
+}
 
 export default app;

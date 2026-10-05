@@ -18,7 +18,7 @@ export async function listApprovals(req: Request, res: Response, next: NextFunct
       FROM approval_requests ar
       LEFT JOIN employees e ON ar.requester_id = e.id OR ar.requester_id = e.user_id
       LEFT JOIN departments d ON e.department_id = d.id
-      LEFT JOIN users u ON ar.current_approver_id = u.id OR ar.current_approver_id = u.employee_id
+      LEFT JOIN users u ON ar.current_approver_id = u.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -69,7 +69,7 @@ export async function listApprovals(req: Request, res: Response, next: NextFunct
              e.employee_id as requester_employee_code,
              e.designation as requester_designation,
              d.name as department_name,
-             u.name as approver_name
+             CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) as approver_name
       ${baseSql}
       ORDER BY ar.submitted_at DESC
       LIMIT ? OFFSET ?

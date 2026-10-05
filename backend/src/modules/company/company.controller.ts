@@ -2,14 +2,41 @@ import { Request, Response, NextFunction } from 'express';
 import { query } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../utils/auditLogger';
+import { sendSuccess } from '../../utils/response';
+
+interface CompanySettingsRow {
+  id: string;
+  company_name: string;
+  company_email: string;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  logo_url: string | null;
+  gst_number: string | null;
+  pan_number: string | null;
+  cin_number: string | null;
+  tax_id: string | null;
+  currency: string;
+  currency_symbol: string;
+  timezone: string;
+  working_days_per_week: number;
+  standard_hours_per_day: number;
+  payroll_pay_date: number;
+  created_at: string;
+  updated_at: string;
+}
 
 export async function getCompanySettings(req: Request, res: Response, next: NextFunction) {
   try {
-    const rows = await query<any[]>('SELECT * FROM company_settings LIMIT 1');
+    const rows = await query<CompanySettingsRow[]>('SELECT * FROM company_settings LIMIT 1');
     if (rows.length === 0) {
-      return res.json({ success: true, data: {} });
+      return sendSuccess(res, {});
     }
-    res.json({ success: true, data: rows[0] });
+    return sendSuccess(res, rows[0]);
   } catch (error) {
     next(error);
   }
@@ -38,8 +65,8 @@ export async function updateCompanySettings(req: Request, res: Response, next: N
     const standardHoursPerDay = req.body.standardHoursPerDay || req.body.standard_hours_per_day;
     const payrollPayDate = req.body.payrollPayDate || req.body.payroll_pay_date;
 
-    const existing = await query<any[]>('SELECT * FROM company_settings LIMIT 1');
-    const id = existing.length > 0 ? existing[0].id : 'company-settings-001';
+    const existing = await query<CompanySettingsRow[]>('SELECT * FROM company_settings LIMIT 1');
+    const id = existing.length > 0 ? existing[0].id : 'company-default';
 
     if (existing.length === 0) {
       await query(
@@ -49,7 +76,7 @@ export async function updateCompanySettings(req: Request, res: Response, next: N
           working_days_per_week, standard_hours_per_day, payroll_pay_date, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          id, companyName || '', companyEmail || '', phone || null, website || null,
+          id, companyName || 'Company', companyEmail || 'admin@erp.local', phone || null, website || null,
           address || null, city || null, state || null, country || null, postalCode || null,
           logoUrl || null, gstNumber || null, panNumber || null, cinNumber || null, taxId || null,
           currency || 'INR', currencySymbol || '₹', timezone || 'Asia/Kolkata',
@@ -99,8 +126,8 @@ export async function updateCompanySettings(req: Request, res: Response, next: N
       ipAddress: req.ip,
     });
 
-    const updated = await query<any[]>('SELECT * FROM company_settings WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Company settings updated successfully', data: updated[0] });
+    const updated = await query<CompanySettingsRow[]>('SELECT * FROM company_settings WHERE id = ?', [id]);
+    return sendSuccess(res, updated[0], undefined, 200, 'Company settings updated successfully');
   } catch (error) {
     next(error);
   }

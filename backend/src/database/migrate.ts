@@ -91,6 +91,33 @@ export async function runMigrations() {
       ip_address VARCHAR(50),
       user_agent TEXT,
       status ENUM('success', 'failed') NOT NULL,
+      reason VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 6b. Active Sessions
+    `CREATE TABLE IF NOT EXISTS user_sessions (
+      id VARCHAR(100) PRIMARY KEY,
+      user_id VARCHAR(100) NOT NULL,
+      token_hash VARCHAR(255) NOT NULL,
+      ip_address VARCHAR(50),
+      user_agent TEXT,
+      device VARCHAR(100),
+      last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 6c. Refresh Tokens
+    `CREATE TABLE IF NOT EXISTS user_refresh_tokens (
+      id VARCHAR(100) PRIMARY KEY,
+      user_id VARCHAR(100) NOT NULL,
+      token_hash VARCHAR(255) NOT NULL,
+      family_id VARCHAR(100),
+      is_revoked BOOLEAN DEFAULT FALSE,
+      expires_at DATETIME NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,

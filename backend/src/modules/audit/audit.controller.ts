@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { query } from '../../config/db';
+import { sendSuccess } from '../../utils/response';
 
 export async function listAuditLogs(req: Request, res: Response, next: NextFunction) {
   try {
@@ -11,7 +12,7 @@ export async function listAuditLogs(req: Request, res: Response, next: NextFunct
     const offset = (page - 1) * limit;
 
     let whereClause = 'WHERE 1=1';
-    const params: any[] = [];
+    const params: (string | number)[] = [];
 
     if (moduleName) {
       whereClause += ' AND a.module = ?';
@@ -27,7 +28,7 @@ export async function listAuditLogs(req: Request, res: Response, next: NextFunct
       params.push(s, s, s, s);
     }
 
-    const countRows = await query<any[]>(`SELECT COUNT(*) as total FROM audit_logs a ${whereClause}`, params);
+    const countRows = await query<[{ total: number }]>(`SELECT COUNT(*) as total FROM audit_logs a ${whereClause}`, params);
     const total = countRows[0]?.total || 0;
 
     const dataSql = `
@@ -38,17 +39,28 @@ export async function listAuditLogs(req: Request, res: Response, next: NextFunct
       LIMIT ? OFFSET ?
     `;
 
-    const logs = await query<any[]>(dataSql, [...params, limit, offset]);
+    interface AuditRow {
+      id: string;
+      user_id: string;
+      user_email: string;
+      user_name: string;
+      action: string;
+      module: string;
+      record_id: string | null;
+      previous_value: string | null;
+      new_value: string | null;
+      ip_address: string | null;
+      user_agent: string | null;
+      created_at: string;
+    }
 
-    res.json({
-      success: true,
-      data: logs,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+    const logs = await query<AuditRow[]>(dataSql, [...params, limit, offset]);
+
+    return sendSuccess(res, logs, {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);

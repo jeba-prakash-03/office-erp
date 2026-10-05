@@ -4,14 +4,29 @@ import { logger } from '../utils/logger';
 export class AppError extends Error {
   public statusCode: number;
   public code: string;
+  public fields?: Record<string, string>;
   public details?: Record<string, any>;
   public isOperational: boolean;
 
-  constructor(message: string, statusCode: number = 400, code?: string, details?: Record<string, any>) {
+  constructor(
+    message: string,
+    statusCode: number = 400,
+    code?: string,
+    fieldsOrDetails?: { fields?: Record<string, string>; details?: Record<string, any> } | Record<string, any>
+  ) {
     super(message);
     this.statusCode = statusCode;
     this.code = code || (statusCode === 400 ? 'VALIDATION_ERROR' : statusCode === 401 ? 'UNAUTHORIZED' : statusCode === 403 ? 'FORBIDDEN' : statusCode === 404 ? 'NOT_FOUND' : statusCode === 409 ? 'CONFLICT' : 'INTERNAL_ERROR');
-    this.details = details;
+    
+    if (fieldsOrDetails) {
+      if ('fields' in fieldsOrDetails) {
+        this.fields = fieldsOrDetails.fields;
+        this.details = fieldsOrDetails.details;
+      } else {
+        this.details = fieldsOrDetails;
+      }
+    }
+    
     this.isOperational = true;
     Error.captureStackTrace(this, this.constructor);
   }
@@ -28,19 +43,20 @@ export function errorHandler(
   const code = err.code || (statusCode === 400 ? 'VALIDATION_ERROR' : statusCode === 401 ? 'UNAUTHORIZED' : statusCode === 403 ? 'FORBIDDEN' : statusCode === 404 ? 'NOT_FOUND' : statusCode === 409 ? 'CONFLICT' : 'INTERNAL_ERROR');
 
   if (statusCode >= 500) {
-    logger.error(`[${req.method}] ${req.originalUrl} - Error:`, err);
+    logger.error(`[${req.method}] ${req.originalUrl} - Server Error:`, err);
   } else {
     logger.warn(`[${req.method}] ${req.originalUrl} (${statusCode}) - ${message}`);
   }
 
   res.status(statusCode).json({
-    success: false,
-    message,
     error: {
       code,
       message,
-      details: err.details || undefined,
-      stack: process.env.NODE_ENV !== 'production' && statusCode >= 500 ? err.stack : undefined,
+      fields: err.fields || err.details?.fields || undefined,
+      details: process.env.NODE_ENV !== 'production' && statusCode >= 500 ? { stack: err.stack } : undefined,
     },
+    // Backward compatibility fields
+    success: false,
+    message,
   });
 }
