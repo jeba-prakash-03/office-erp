@@ -289,6 +289,7 @@ async function runAttendanceRestructureVerification() {
   console.log('\n===============================================================');
   console.log('✓ ALL 17 ATTENDANCE MODULE RESTRUCTURE TESTS PASSED PERFECTLY!');
   console.log('===============================================================');
+  process.exit(0);
 }
 
 runAttendanceRestructureVerification().catch((err) => {

@@ -114,6 +114,7 @@ async function testHrSlice() {
   await query('DELETE FROM departments WHERE id = ?', [deptId]);
 
   console.log('--- SLICE 3.4 (HR & EMPLOYEES) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testHrSlice().catch((err) => {

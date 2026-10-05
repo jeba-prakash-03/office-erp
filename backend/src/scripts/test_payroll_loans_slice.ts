@@ -128,6 +128,7 @@ async function testPayrollLoansSlice() {
   await query('DELETE FROM employee_loans WHERE id = ?', [loanId]);
 
   console.log('--- SLICE 3.6 (PAYROLL & LOANS) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testPayrollLoansSlice().catch((err) => {

@@ -109,6 +109,7 @@ async function testTimesheetsSlice() {
   await query('DELETE FROM approval_requests WHERE entity_id = ?', [timesheetId]);
 
   console.log('--- SLICE 3.3 (TIMESHEETS) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testTimesheetsSlice().catch((err) => {

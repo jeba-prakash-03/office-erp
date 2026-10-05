@@ -152,6 +152,7 @@ async function testFinanceSlice() {
   await query('DELETE FROM invoices WHERE id = ?', [invoiceId]);
 
   console.log('--- SLICE 3.8 (FINANCE & INVOICES) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testFinanceSlice().catch((err) => {

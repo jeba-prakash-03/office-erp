@@ -502,6 +502,32 @@ export interface PayrollItem {
   year?: number;
 }
 
+export interface ApprovalRequest {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  requester_id: string;
+  requester_name?: string;
+  requester_employee_code?: string;
+  requester_designation?: string;
+  department_name?: string;
+  current_approver_id?: string;
+  approver_name?: string;
+  current_step?: number;
+  total_steps?: number;
+  status: string;
+  comments?: string;
+  submitted_at: string;
+  updated_at: string;
+}
+
+export interface ApprovalOverview {
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  totalCount: number;
+}
+
 export interface Loan {
   id: string | number;
   employee_id: string | number;

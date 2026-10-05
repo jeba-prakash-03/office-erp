@@ -142,6 +142,7 @@ async function testProjectsTasksSlice() {
   await query('DELETE FROM projects WHERE id = ?', [projectId]);
 
   console.log('--- SLICE 3.5 (PROJECTS & TASKS) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testProjectsTasksSlice().catch((err) => {

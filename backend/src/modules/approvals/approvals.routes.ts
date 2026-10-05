@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth';
 import {
+  listApprovals,
   getPendingApprovals,
   processApprovalDecision,
   cancelApprovalRequest,
@@ -11,6 +12,7 @@ const router = Router();
 
 router.use(authenticate);
 
+router.get('/', listApprovals);
 router.get('/pending', getPendingApprovals);
 router.get('/history/:id', getApprovalHistory);
 router.post('/:id/decision', processApprovalDecision);

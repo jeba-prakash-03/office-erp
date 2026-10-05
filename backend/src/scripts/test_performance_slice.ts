@@ -79,6 +79,7 @@ async function testPerformanceSlice() {
   await query('DELETE FROM performance_reviews WHERE id = ?', [reviewId]);
 
   console.log('--- SLICE 3.7 (PERFORMANCE REVIEWS) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testPerformanceSlice().catch((err) => {

@@ -26,6 +26,7 @@ import {
   X,
   UserCheck,
   Receipt,
+  FileCheck,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -39,15 +40,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const isClient = user?.roleName === 'client';
   const isEmployeeOnly = user?.roleName === 'employee';
+  const hasEmployeeProfile = !!user?.employeeId || isEmployeeOnly || user?.roleName === 'manager' || user?.roleName === 'team_lead';
 
   const navGroups = [
     {
       title: 'MAIN',
       items: [
         { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, show: true },
-        { name: 'My Attendance', path: '/my-attendance', icon: Clock, show: !isClient && (!!user?.employeeId || user?.roleName === 'employee' || user?.roleName === 'manager') },
+        { name: 'Approvals Hub', path: '/approvals', icon: FileCheck, show: !isClient },
         { name: 'Client Portal', path: '/portal/client', icon: Building, show: isClient },
         { name: 'Employee Portal', path: '/portal/employee', icon: UserCheck, show: isEmployeeOnly },
+      ],
+    },
+    {
+      title: 'MY WORKSPACE',
+      show: !isClient && hasEmployeeProfile,
+      items: [
+        { name: 'My Attendance', path: '/my-attendance', icon: Clock, show: true },
+        { name: 'My Leave', path: '/leave', icon: CalendarCheck, show: true },
+        { name: 'My Timesheets', path: '/timesheets', icon: Clock, show: true },
+        { name: 'My Tasks', path: '/tasks', icon: CheckSquare, show: true },
+        { name: 'My Payslips', path: '/payroll', icon: CreditCard, show: true },
       ],
     },
     {
@@ -67,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       items: [
         { name: 'Projects', path: '/projects', icon: Briefcase, show: hasPermission('projects.view') },
         { name: 'Tasks & Kanban', path: '/tasks', icon: CheckSquare, show: hasPermission('tasks.view') },
-        { name: 'Timesheets', path: '/timesheets', icon: Clock, show: true },
+        { name: 'Timesheets', path: '/timesheets', icon: Clock, show: hasPermission('timesheets.view') || hasPermission('timesheets.manage') },
       ],
     },
     {
@@ -90,17 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ],
     },
     {
-      title: 'OPERATIONS',
-      items: [
-        { name: 'Assets Inventory', path: '/assets', icon: Package, show: !isClient && hasPermission('assets.view') },
-        { name: 'Document Vault', path: '/documents', icon: FolderOpen, show: true },
-        { name: 'Meetings', path: '/meetings', icon: Video, show: true },
-        { name: 'Announcements', path: '/announcements', icon: Megaphone, show: true },
-        { name: 'Calendar', path: '/calendar', icon: Calendar, show: true },
-      ],
-    },
-    {
-      title: 'REPORTING',
+      title: 'REPORTS',
       show: !isClient && hasPermission('reports.view'),
       items: [
         { name: 'Reports & Analytics', path: '/reports', icon: BarChart3, show: hasPermission('reports.view') },
@@ -110,10 +113,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       title: 'ADMINISTRATION',
       show: !isClient && (hasPermission('settings.manage') || hasPermission('roles.manage') || hasPermission('users.view') || hasPermission('audit_logs.view')),
       items: [
-        { name: 'Users Roster', path: '/users', icon: UserCheck, show: hasPermission('users.view') },
+        { name: 'Users', path: '/users', icon: UserCheck, show: hasPermission('users.view') },
         { name: 'Roles & Permissions', path: '/roles', icon: Users, show: hasPermission('roles.manage') },
-        { name: 'Audit Logs', path: '/audit-logs', icon: ShieldCheck, show: hasPermission('audit_logs.view') },
         { name: 'Company Settings', path: '/settings', icon: Sliders, show: hasPermission('settings.manage') },
+        { name: 'Audit Logs', path: '/audit', icon: ShieldCheck, show: hasPermission('audit_logs.view') },
+      ],
+    },
+    {
+      title: 'OPERATIONS',
+      show: !isClient,
+      items: [
+        { name: 'Assets Inventory', path: '/assets', icon: Package, show: hasPermission('assets.view') },
+        { name: 'Document Vault', path: '/documents', icon: FolderOpen, show: true },
+        { name: 'Meetings', path: '/meetings', icon: Video, show: true },
+        { name: 'Announcements', path: '/announcements', icon: Megaphone, show: true },
+        { name: 'Calendar', path: '/calendar', icon: Calendar, show: true },
       ],
     },
   ];

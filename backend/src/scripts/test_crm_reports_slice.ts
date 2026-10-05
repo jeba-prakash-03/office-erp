@@ -97,6 +97,7 @@ async function testCrmReportsSlice() {
   await query('DELETE FROM leads WHERE id = ?', [leadId]);
 
   console.log('--- SLICE 3.9 (CRM & REPORTS) PASSED ALL TESTS ---');
+  process.exit(0);
 }
 
 testCrmReportsSlice().catch((err) => {

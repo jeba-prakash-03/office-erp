@@ -1,7 +1,7 @@
 import { apiClient } from './client';
 import {
   User, Employee, Department, Client, Lead, Project, Task, Attendance,
-  AttendanceCorrection, TodayAttendanceStatus, AttendanceOverview, LeaveType, LeaveBalance, LeaveApplication, Payroll,
+  AttendanceCorrection, TodayAttendanceStatus, AttendanceOverview, ApprovalRequest, ApprovalOverview, LeaveType, LeaveBalance, LeaveApplication, Payroll,
   PayrollItem, Loan, PerformanceReview, Timesheet, Income, ExpenseCategory,
   Expense, Invoice, Payment, Asset, CompanyDocument, Announcement, NotificationItem,
   Meeting, CompanySettings, AuditLog
@@ -276,3 +276,12 @@ export const auditApi = {
 export const searchApi = {
   global: (q: string) => apiClient.get('/search', { params: { q } }),
 };
+
+export const approvalsApi = {
+  list: (params?: any) => apiClient.get<{ success: boolean; data: { records: ApprovalRequest[]; pagination: any; overview: ApprovalOverview } }>('/approvals', { params }),
+  getPending: (params?: any) => apiClient.get<{ success: boolean; data: { records: ApprovalRequest[]; pagination: any; overview: ApprovalOverview } }>('/approvals/pending', { params }),
+  getHistory: (id: string) => apiClient.get<{ success: boolean; data: any[] }>(`/approvals/history/${id}`),
+  decision: (id: string, data: { action: 'approve' | 'reject' | 'return'; remarks?: string }) => apiClient.post(`/approvals/${id}/decision`, data),
+  cancel: (id: string, data?: { remarks?: string }) => apiClient.post(`/approvals/${id}/cancel`, data || {}),
+};
+

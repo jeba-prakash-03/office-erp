@@ -23,6 +23,8 @@ import { TaskKanban } from './pages/tasks/TaskKanban';
 import { AttendanceList } from './pages/attendance/AttendanceList';
 import { MyAttendancePage } from './pages/attendance/MyAttendancePage';
 import { LeaveList } from './pages/leave/LeaveList';
+import { ApprovalsHub } from './pages/approvals/ApprovalsHub';
+
 
 import { PayrollList } from './pages/payroll/PayrollList';
 import { PayslipView } from './pages/payroll/PayslipView';
@@ -103,6 +105,8 @@ export const App: React.FC = () => {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="approvals" element={<ApprovalsHub />} />
 
         {/* HR & Personnel */}
         <Route path="employees" element={<EmployeesList />} />
