@@ -45,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       title: 'MAIN',
       items: [
         { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, show: true },
+        { name: 'My Attendance', path: '/my-attendance', icon: Clock, show: !isClient && (!!user?.employeeId || user?.roleName === 'employee' || user?.roleName === 'manager') },
         { name: 'Client Portal', path: '/portal/client', icon: Building, show: isClient },
         { name: 'Employee Portal', path: '/portal/employee', icon: UserCheck, show: isEmployeeOnly },
       ],
@@ -55,7 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       items: [
         { name: 'Employees', path: '/employees', icon: Users, show: hasPermission('employees.view') },
         { name: 'Departments', path: '/departments', icon: Building2, show: hasPermission('departments.view') },
-        { name: 'Attendance', path: '/attendance', icon: Clock, show: hasPermission('attendance.view') },
+        { name: 'Attendance Management', path: '/attendance', icon: UserCheck, show: hasPermission('attendance.view') || hasPermission('attendance.manage') },
         { name: 'Leave Management', path: '/leave', icon: CalendarCheck, show: hasPermission('leave.view') },
         { name: 'Performance', path: '/performance', icon: TrendingUp, show: hasPermission('performance.view') },
       ],

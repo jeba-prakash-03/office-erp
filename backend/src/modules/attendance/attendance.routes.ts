@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import {
-  checkIn,
-  checkOut,
-  getTodayStatus,
+  clockIn,
+  clockOut,
+  getMyTodayStatus,
+  getMyAttendanceHistory,
+  getAttendanceOverview,
   listAttendance,
+  adminManualCorrection,
   requestCorrection,
   listCorrections,
   reviewCorrection,
@@ -15,22 +18,39 @@ const router = Router();
 
 router.use(authenticate);
 
-router.post('/check-in', checkIn);
-router.post('/clock-in', checkIn);
-router.post('/punch-in', checkIn);
+// Employee Self-Service Endpoints
+router.get('/me', getMyTodayStatus);
+router.get('/today', getMyTodayStatus);
+router.get('/status', getMyTodayStatus);
+router.get('/my-history', getMyAttendanceHistory);
 
-router.post('/check-out', checkOut);
-router.post('/clock-out', checkOut);
-router.post('/punch-out', checkOut);
+router.post('/clock-in', clockIn);
+router.post('/check-in', clockIn);
+router.post('/punch-in', clockIn);
 
-router.get('/today', getTodayStatus);
-router.get('/status', getTodayStatus);
+router.post('/clock-out', clockOut);
+router.post('/check-out', clockOut);
+router.post('/punch-out', clockOut);
+
+// Admin / HR Management Endpoints
+router.get('/overview', getAttendanceOverview);
 router.get('/', listAttendance);
+router.post('/admin-correction', requirePermission('attendance.manage'), adminManualCorrection);
 
+// Correction Workflow Endpoints
 router.post('/correction', requestCorrection);
 router.post('/corrections', requestCorrection);
 router.get('/corrections', listCorrections);
 router.put('/corrections/:id/review', requirePermission('attendance.approve'), reviewCorrection);
+router.put('/corrections/:id/approve', requirePermission('attendance.approve'), (req, res, next) => {
+  req.body.status = 'approved';
+  return reviewCorrection(req, res, next);
+});
+router.put('/corrections/:id/reject', requirePermission('attendance.approve'), (req, res, next) => {
+  req.body.status = 'rejected';
+  return reviewCorrection(req, res, next);
+});
 router.put('/corrections/:id', requirePermission('attendance.approve'), reviewCorrection);
 
 export default router;
+

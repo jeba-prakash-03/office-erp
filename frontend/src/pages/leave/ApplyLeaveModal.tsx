@@ -42,6 +42,22 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
     }
   }, [isOpen]);
 
+  // Calculate estimated days
+  const calculateDays = () => {
+    if (formData.is_half_day) return 0.5;
+    if (!formData.start_date || !formData.end_date) return 0;
+    const start = new Date(formData.start_date);
+    const end = new Date(formData.end_date);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return 0;
+    let count = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() !== 0) count++;
+    }
+    return Math.max(1, count);
+  };
+
+  const estimatedDays = calculateDays();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.leave_type_id || !formData.start_date || !formData.end_date || !formData.reason.trim()) {
@@ -49,21 +65,24 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
       return;
     }
 
+    if (loading) return;
     setLoading(true);
     try {
-      await leaveApi.apply({
-        leave_type_id: Number(formData.leave_type_id),
+      const res = await leaveApi.apply({
+        leave_type_id: formData.leave_type_id,
         start_date: formData.start_date,
         end_date: formData.end_date,
         is_half_day: formData.is_half_day,
         half_day_type: formData.is_half_day ? formData.half_day_type : undefined,
-        reason: formData.reason,
+        total_days: estimatedDays,
+        reason: formData.reason.trim(),
       });
-      showNotification('success', 'Leave application submitted for approval');
+      showNotification('success', res.data?.message || 'Leave application submitted for approval');
       onSuccess();
       onClose();
     } catch (err: any) {
-      showNotification('error', err.response?.data?.message || 'Failed to submit leave application');
+      const msg = err.response?.data?.message || err.message || 'Failed to submit leave application';
+      showNotification('error', msg);
     } finally {
       setLoading(false);
     }
@@ -150,6 +169,13 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
               <option value="first_half">First Half (Morning)</option>
               <option value="second_half">Second Half (Afternoon)</option>
             </select>
+          </div>
+        )}
+
+        {estimatedDays > 0 && (
+          <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 p-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center justify-between">
+            <span>Requested Leave Duration:</span>
+            <span className="font-bold">{estimatedDays} Working Day{estimatedDays > 1 ? 's' : ''}</span>
           </div>
         )}
 

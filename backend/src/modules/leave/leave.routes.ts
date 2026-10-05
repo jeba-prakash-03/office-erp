@@ -6,6 +6,7 @@ import {
   applyLeave,
   listLeaveRequests,
   reviewLeaveRequest,
+  cancelLeaveRequest,
 } from './leave.controller';
 import { authenticate } from '../../middleware/auth';
 import { requirePermission } from '../../middleware/rbac';
@@ -33,6 +34,9 @@ router.put('/requests/:id/reject', requirePermission('leave.approve'), (req, res
   req.body.remarks = req.body.remarks || req.body.rejection_reason;
   return reviewLeaveRequest(req, res, next);
 });
+router.post('/requests/:id/cancel', cancelLeaveRequest);
+router.put('/requests/:id/cancel', cancelLeaveRequest);
+router.post('/applications/:id/cancel', cancelLeaveRequest);
 router.put('/requests/:id/status', requirePermission('leave.approve'), reviewLeaveRequest);
 router.put('/requests/:id', requirePermission('leave.approve'), reviewLeaveRequest);
 router.put('/applications/:id/status', requirePermission('leave.approve'), reviewLeaveRequest);

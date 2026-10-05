@@ -16,6 +16,8 @@ export interface User {
   avatar_url?: string | null;
   phone?: string | null;
   status?: string;
+  employeeId?: string | number | null;
+  employee_id?: string | number | null;
   last_login_at?: string | null;
   created_at?: string;
   employee?: {
@@ -316,10 +318,13 @@ export interface Attendance {
   break_minutes?: number;
   total_hours?: number | string;
   overtime_hours?: number | string;
+  working_hours_formatted?: string;
+  overtime_hours_formatted?: string;
   status: string;
   ip_address?: string | null;
   notes?: string | null;
 }
+
 
 export interface AttendanceCorrection {
   id: string | number;
@@ -339,6 +344,41 @@ export interface AttendanceCorrection {
   reviewer_remarks?: string | null;
   created_at?: string;
 }
+
+export interface AttendanceOverview {
+  totalEmployees: number;
+  present: number;
+  absent: number;
+  late: number;
+  onLeave: number;
+  missingPunch: number;
+  date: string;
+}
+
+export interface TodayAttendanceStatus {
+  hasEmployeeProfile: boolean;
+  employeeId: string | null;
+  employeeCode?: string;
+  employeeName?: string;
+  departmentName?: string;
+  date: string;
+  status: string;
+  message?: string;
+  checkIn: string | null;
+  checkOut: string | null;
+  totalHours: number;
+  overtimeHours: number;
+  workingHoursFormatted: string;
+  overtimeHoursFormatted: string;
+  canClockIn: boolean;
+  canClockOut: boolean;
+  isClockedIn: boolean;
+  isClockedOut: boolean;
+  isOnLeave: boolean;
+  attendanceId?: string | null;
+  correctionPending?: boolean;
+}
+
 
 export interface LeaveType {
   id: string | number;

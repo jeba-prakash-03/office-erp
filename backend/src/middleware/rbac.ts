@@ -68,3 +68,21 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+export function requireEmployeeProfile(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return next(new AppError('Unauthorized. Authentication required.', 401));
+  }
+
+  if (!req.user.employeeId) {
+    return next(
+      new AppError(
+        'Self-service operations require a linked employee record. Your account does not have an employee profile.',
+        403,
+        'NO_EMPLOYEE_PROFILE'
+      )
+    );
+  }
+
+  next();
+}

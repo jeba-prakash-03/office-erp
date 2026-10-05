@@ -226,21 +226,178 @@ export async function seedSystem() {
     await query(`INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)`, ['role-sales-bd', p.id]);
   }
 
-  // 4. Seed Initial Super Admin User (NO demo fake data, authentic system administrator account)
-  const adminEmail = 'admin@erp.local';
+  // 4. Seed Initial Multi-Role Accounts (1 per role, manager/report pair, client with project and invoice)
+  const defaultPassword = 'Admin@123456';
   const salt = await bcrypt.genSalt(10);
-  const passwordHash = await bcrypt.hash('Admin@123456', salt);
+  const passwordHash = await bcrypt.hash(defaultPassword, salt);
 
-  const existingAdmin = await query<any[]>('SELECT id FROM users WHERE email = ?', [adminEmail]);
-  if (existingAdmin.length === 0) {
-    const adminId = 'usr-super-admin-001';
+  // Look up departments dynamically
+  const deptRows = await query<any[]>('SELECT id, name FROM departments');
+  const getDeptId = (name: string) => deptRows.find(d => d.name.toLowerCase().includes(name.toLowerCase()))?.id || deptRows[0]?.id;
+  const deptEngId = getDeptId('Engineering') || 'dept-9c4c7c58-3fa4-4ebd-bd21-4685d3cacd0d';
+  const deptHrId = getDeptId('Human Resources') || 'dept-f39c4c30-9fc4-4c12-86e4-9eef4082c288';
+  const deptFinId = getDeptId('Finance') || 'dept-cf1f74f0-1f01-4ba9-8b00-40faa29f94f1';
+
+  const testAccounts = [
+    {
+      userId: 'usr-super-admin-001',
+      email: 'admin@erp.local',
+      firstName: 'Super',
+      lastName: 'Administrator',
+      roleId: 'role-super-admin',
+      roleName: 'super_admin',
+      employeeId: 'emp-super-admin-001',
+      employeeCode: 'EMP-0001',
+      designation: 'Executive Director',
+      deptId: deptEngId,
+      salary: 180000.00,
+    },
+    {
+      userId: 'usr-admin-002',
+      email: 'executive.admin@erp.local',
+      firstName: 'Operations',
+      lastName: 'Director',
+      roleId: 'role-admin',
+      roleName: 'admin',
+      employeeId: 'emp-admin-002',
+      employeeCode: 'EMP-0002',
+      designation: 'Operations Director',
+      deptId: deptEngId,
+      salary: 150000.00,
+    },
+    {
+      userId: 'usr-hr-003',
+      email: 'hr.manager@erp.local',
+      firstName: 'Priya',
+      lastName: 'Sharma',
+      roleId: 'role-hr-manager',
+      roleName: 'hr_manager',
+      employeeId: 'emp-hr-003',
+      employeeCode: 'EMP-0003',
+      designation: 'Head of People & Culture',
+      deptId: deptHrId,
+      salary: 120000.00,
+    },
+    {
+      userId: 'usr-finance-004',
+      email: 'finance.manager@erp.local',
+      firstName: 'Rajesh',
+      lastName: 'Verma',
+      roleId: 'role-finance-manager',
+      roleName: 'finance_manager',
+      employeeId: 'emp-finance-004',
+      employeeCode: 'EMP-0004',
+      designation: 'VP Finance & Accounts',
+      deptId: deptFinId,
+      salary: 130000.00,
+    },
+    {
+      userId: 'usr-pm-005',
+      email: 'pm.lead@erp.local',
+      firstName: 'Karthik',
+      lastName: 'Subramanian',
+      roleId: 'role-project-manager',
+      roleName: 'project_manager',
+      employeeId: 'emp-pm-005',
+      employeeCode: 'EMP-0005',
+      designation: 'Senior Technical Delivery Manager',
+      deptId: deptEngId,
+      salary: 110000.00,
+    },
+    {
+      userId: 'usr-lead-006',
+      email: 'team.lead@erp.local',
+      firstName: 'Ananya',
+      lastName: 'Iyer',
+      roleId: 'role-team-lead',
+      roleName: 'team_lead',
+      employeeId: 'emp-lead-006',
+      employeeCode: 'EMP-0006',
+      designation: 'Engineering Team Lead',
+      deptId: deptEngId,
+      salary: 95000.00,
+    },
+    {
+      userId: 'usr-emp-007',
+      email: 'developer.employee@erp.local',
+      firstName: 'Siddharth',
+      lastName: 'Patel',
+      roleId: 'role-employee',
+      roleName: 'employee',
+      employeeId: 'emp-emp-007',
+      employeeCode: 'EMP-0007',
+      designation: 'Full Stack Software Engineer',
+      deptId: deptEngId,
+      salary: 75000.00,
+      reportingManagerId: 'emp-pm-005', // Reporting line pair
+    },
+  ];
+
+  for (const acc of testAccounts) {
+    // Upsert User
     await query(
       `INSERT INTO users (id, email, password_hash, first_name, last_name, role_id, status, email_verified, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NOW())`,
-      [adminId, adminEmail, passwordHash, 'Super', 'Administrator', 'role-super-admin']
+       VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NOW())
+       ON DUPLICATE KEY UPDATE first_name = VALUES(first_name), last_name = VALUES(last_name), role_id = VALUES(role_id), password_hash = VALUES(password_hash)`,
+      [acc.userId, acc.email, passwordHash, acc.firstName, acc.lastName, acc.roleId]
     );
-    logger.info(`Seeded Super Admin user: ${adminEmail}`);
+
+    // Upsert Employee
+    await query(
+      `INSERT INTO employees (
+        id, user_id, employee_id, first_name, last_name, email, department_id,
+        designation, role_id, joining_date, employment_type, employment_status,
+        basic_salary, reporting_manager_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '2026-01-01', 'full_time', 'active', ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE basic_salary = VALUES(basic_salary), reporting_manager_id = VALUES(reporting_manager_id), department_id = VALUES(department_id)`,
+      [
+        acc.employeeId, acc.userId, acc.employeeCode, acc.firstName, acc.lastName, acc.email,
+        acc.deptId, acc.designation, acc.roleId, acc.salary, acc.reportingManagerId || null
+      ]
+    );
   }
+
+  // Client User & Profile
+  const clientId = 'client-acme-corp-001';
+  const clientUserId = 'usr-client-008';
+  const clientEmail = 'client.contact@acmecorp.test';
+
+  await query(
+    `INSERT INTO users (id, email, password_hash, first_name, last_name, role_id, status, email_verified, created_at)
+     VALUES (?, ?, ?, 'Acme', 'Representative', 'role-client', 'active', 1, NOW())
+     ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash)`,
+    [clientUserId, clientEmail, passwordHash]
+  );
+
+  await query(
+    `INSERT INTO clients (
+      id, client_code, company_name, contact_person, email, phone, website,
+      status, user_id, created_at
+    ) VALUES (?, 'CLI-ACME-001', 'Acme Global Enterprises', 'John Acme', ?, '+1 800 555 0199', 'https://acmeglobal.test', 'active', ?, NOW())
+    ON DUPLICATE KEY UPDATE company_name = VALUES(company_name)`,
+    [clientId, clientEmail, clientUserId]
+  );
+
+  // Client Project & Invoice
+  const projectId = 'proj-acme-portal-001';
+  await query(
+    `INSERT INTO projects (
+      id, project_code, name, client_id, description, project_manager_id,
+      start_date, end_date, budget, status, priority, created_at
+    ) VALUES (?, 'PRJ-ACME-001', 'Acme Enterprise Portal System', ?, 'Custom web portal and cloud architecture', 'emp-pm-005', '2026-01-15', '2026-12-31', 2500000.00, 'active', 'high', NOW())
+    ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+    [projectId, clientId]
+  );
+
+  const invoiceId = 'inv-acme-001';
+  await query(
+    `INSERT INTO invoices (
+      id, invoice_number, client_id, project_id, invoice_date, due_date,
+      subtotal, tax_amount, grand_total, paid_amount, remaining_balance, status, created_at
+    ) VALUES (?, 'INV-2026-001', ?, ?, '2026-09-01', '2026-10-01', 500000.00, 90000.00, 590000.00, 200000.00, 390000.00, 'partially_paid', NOW())
+    ON DUPLICATE KEY UPDATE grand_total = VALUES(grand_total)`,
+    [invoiceId, clientId, projectId]
+  );
 
   // 5. Seed Company Settings Defaults
   const settingsRows = await query<any[]>('SELECT id FROM company_settings LIMIT 1');

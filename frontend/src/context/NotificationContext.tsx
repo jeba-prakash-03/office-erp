@@ -71,11 +71,17 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 4000);
+    if (!message) return;
+    setToasts((prev) => {
+      // Prevent showing the exact same toast if already active
+      const exists = prev.some((t) => t.message === message && t.type === type);
+      if (exists) return prev;
+      const id = Math.random().toString(36).substring(2, 9);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4000);
+      return [...prev, { id, type, message }];
+    });
   };
 
   const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {

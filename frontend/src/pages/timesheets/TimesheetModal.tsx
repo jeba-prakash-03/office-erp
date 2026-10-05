@@ -69,19 +69,19 @@ export const TimesheetModal: React.FC<TimesheetModalProps> = ({
     setLoading(true);
     try {
       await timesheetsApi.create({
-        project_id: Number(formData.project_id),
-        task_id: formData.task_id ? Number(formData.task_id) : undefined,
+        projectId: formData.project_id,
+        taskId: formData.task_id || undefined,
         date: formData.date,
-        hours: Number(formData.hours),
-        description: formData.description,
-        is_billable: formData.is_billable,
+        hours: parseFloat(formData.hours),
+        description: formData.description.trim(),
+        isBillable: formData.is_billable,
       });
 
       showNotification('success', 'Timesheet entry logged successfully');
       onSuccess();
       onClose();
     } catch (err: any) {
-      showNotification('error', err.response?.data?.message || 'Failed to log timesheet');
+      showNotification('error', err.response?.data?.message || err.message || 'Failed to log timesheet');
     } finally {
       setLoading(false);
     }

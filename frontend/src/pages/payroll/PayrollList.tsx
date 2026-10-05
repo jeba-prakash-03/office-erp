@@ -14,6 +14,8 @@ import { ProcessPayrollModal } from './ProcessPayrollModal';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 
+import { formatCurrency } from '../../utils/formatters';
+
 export const PayrollList: React.FC = () => {
   const { hasPermission } = useAuth();
   const { showNotification } = useNotification();
@@ -100,7 +102,7 @@ export const PayrollList: React.FC = () => {
       header: 'Basic Salary',
       accessor: (p) => (
         <span className="text-xs text-slate-700 dark:text-slate-300">
-          ${Number(p.basic_salary || 0).toLocaleString()}
+          {formatCurrency(p.basic_salary)}
         </span>
       ),
     },
@@ -108,7 +110,7 @@ export const PayrollList: React.FC = () => {
       header: 'Gross Salary',
       accessor: (p) => (
         <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-          ${Number(p.gross_salary || 0).toLocaleString()}
+          {formatCurrency(p.gross_salary)}
         </span>
       ),
     },
@@ -116,7 +118,7 @@ export const PayrollList: React.FC = () => {
       header: 'Deductions',
       accessor: (p) => (
         <span className="text-xs font-medium text-red-600 dark:text-red-400">
-          -${Number(p.total_deductions || 0).toLocaleString()}
+          -{formatCurrency(p.total_deductions)}
         </span>
       ),
     },
@@ -124,7 +126,7 @@ export const PayrollList: React.FC = () => {
       header: 'Net Salary',
       accessor: (p) => (
         <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-          ${Number(p.net_salary || 0).toLocaleString()}
+          {formatCurrency(p.net_salary)}
         </span>
       ),
     },
@@ -191,17 +193,17 @@ export const PayrollList: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatsCard
           title="Total Gross Payroll"
-          value={`$${totalGross.toLocaleString()}`}
+          value={formatCurrency(totalGross)}
           icon={<DollarSign className="w-6 h-6" />}
         />
         <StatsCard
           title="Total Deductions (Tax & Leaves)"
-          value={`-$${totalDeductions.toLocaleString()}`}
+          value={`-${formatCurrency(totalDeductions)}`}
           icon={<AlertCircle className="w-6 h-6" />}
         />
         <StatsCard
           title="Total Net Salary Payout"
-          value={`$${totalNet.toLocaleString()}`}
+          value={formatCurrency(totalNet)}
           icon={<CheckCircle2 className="w-6 h-6" />}
         />
       </div>

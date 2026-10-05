@@ -1,7 +1,7 @@
 import { apiClient } from './client';
 import {
   User, Employee, Department, Client, Lead, Project, Task, Attendance,
-  AttendanceCorrection, LeaveType, LeaveBalance, LeaveApplication, Payroll,
+  AttendanceCorrection, TodayAttendanceStatus, AttendanceOverview, LeaveType, LeaveBalance, LeaveApplication, Payroll,
   PayrollItem, Loan, PerformanceReview, Timesheet, Income, ExpenseCategory,
   Expense, Invoice, Payment, Asset, CompanyDocument, Announcement, NotificationItem,
   Meeting, CompanySettings, AuditLog
@@ -122,10 +122,14 @@ export const attendanceApi = {
   clockOut: (data?: any) => apiClient.post('/attendance/clock-out', data || {}),
   checkIn: () => apiClient.post('/attendance/clock-in'),
   checkOut: () => apiClient.post('/attendance/clock-out'),
-  getTodayStatus: () => apiClient.get<{ success: boolean; data: Attendance | null }>('/attendance/today'),
-  getToday: () => apiClient.get<{ success: boolean; data: Attendance | null }>('/attendance/today'),
+  getMyStatus: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/me'),
+  getMyHistory: (params?: any) => apiClient.get<{ success: boolean; data: Attendance[] }>('/attendance/my-history', { params }),
+  getTodayStatus: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/today'),
+  getToday: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/today'),
+  getOverview: (params?: any) => apiClient.get<{ success: boolean; data: AttendanceOverview }>('/attendance/overview', { params }),
   getAll: (params?: any) => apiClient.get('/attendance', { params }),
   list: (params?: any) => apiClient.get('/attendance', { params }),
+  adminCorrection: (data: any) => apiClient.post<{ success: boolean; message: string }>('/attendance/admin-correction', data),
   requestCorrection: (data: any) => apiClient.post('/attendance/correction', data),
   listCorrections: (params?: any) => apiClient.get<{ success: boolean; data: AttendanceCorrection[] }>('/attendance/corrections', { params }),
   reviewCorrection: (id: string | number, data: any) => apiClient.put(`/attendance/corrections/${id}/review`, data),

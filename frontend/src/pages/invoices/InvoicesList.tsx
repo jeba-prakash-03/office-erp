@@ -13,6 +13,7 @@ import { StatsCard } from '../../components/ui/StatsCard';
 import { InvoiceModal } from './InvoiceModal';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
+import { formatCurrency } from '../../utils/formatters';
 
 export const InvoicesList: React.FC = () => {
   const { hasPermission } = useAuth();
@@ -96,7 +97,7 @@ export const InvoicesList: React.FC = () => {
       header: 'Total Amount',
       accessor: (i) => (
         <span className="text-xs font-bold text-slate-900 dark:text-white">
-          ${Number(i.total_amount || 0).toLocaleString()}
+          {formatCurrency(i.total_amount)}
         </span>
       ),
     },
@@ -104,7 +105,7 @@ export const InvoicesList: React.FC = () => {
       header: 'Paid Amount',
       accessor: (i) => (
         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-          ${Number(i.paid_amount || 0).toLocaleString()}
+          {formatCurrency(i.paid_amount)}
         </span>
       ),
     },
@@ -149,17 +150,17 @@ export const InvoicesList: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatsCard
           title="Total Invoiced Value"
-          value={`$${totalInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          value={formatCurrency(totalInvoiced)}
           icon={<FileText className="w-6 h-6" />}
         />
         <StatsCard
           title="Total Collected"
-          value={`$${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          value={formatCurrency(totalPaid)}
           icon={<CheckCircle2 className="w-6 h-6" />}
         />
         <StatsCard
           title="Outstanding Receivables"
-          value={`$${totalPending.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          value={formatCurrency(totalPending)}
           icon={<Clock className="w-6 h-6" />}
         />
       </div>

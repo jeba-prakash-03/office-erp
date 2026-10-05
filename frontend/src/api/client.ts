@@ -51,6 +51,9 @@ apiClient.interceptors.response.use(
     }
 
     const message = error.response?.data?.message || error.message || 'An error occurred';
-    return Promise.reject(new Error(message));
+    const customErr: any = new Error(message);
+    customErr.response = error.response;
+    customErr.status = error.response?.status;
+    return Promise.reject(customErr);
   }
 );

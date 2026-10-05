@@ -64,23 +64,34 @@ export async function listLeads(req: Request, res: Response, next: NextFunction)
 
 export async function createLead(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      name, company, email, phone, source, assignedEmployeeId,
-      stage, priority, estimatedValue, expectedClosingDate, notes
-    } = req.body;
+    const name = req.body.name || req.body.contactPerson || req.body.contact_person || req.body.contact_name;
+    const company = req.body.company || req.body.companyName || req.body.company_name;
+    const email = req.body.email;
+    const phone = req.body.phone;
+    const source = req.body.source;
+    const assignedEmployeeId = req.body.assignedEmployeeId || req.body.assigned_employee_id || null;
+    const stage = req.body.stage || req.body.status || 'new';
+    const priority = req.body.priority || 'medium';
+    const estimatedValue = req.body.estimatedValue || req.body.estimated_value || req.body.deal_value || 0.00;
+    const expectedClosingDate = req.body.expectedClosingDate || req.body.expected_closing_date || null;
+    const notes = req.body.notes || null;
 
-    if (!name) throw new AppError('Lead name is required', 400);
+    if (!name && !company) {
+      throw new AppError('Lead name or company is required', 400);
+    }
 
     const leadId = `lead-${uuidv4()}`;
+    const displayName = name || company;
+
     await query(
       `INSERT INTO leads (
         id, name, company, email, phone, source, assigned_employee_id,
         stage, priority, estimated_value, expected_closing_date, notes, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
-        leadId, name.trim(), company || null, email || null, phone || null,
-        source || null, assignedEmployeeId || null, stage || 'new', priority || 'medium',
-        estimatedValue || 0.00, expectedClosingDate || null, notes || null
+        leadId, String(displayName).trim(), company || null, email || null, phone || null,
+        source || null, assignedEmployeeId, stage, priority,
+        estimatedValue, expectedClosingDate, notes
       ]
     );
 
@@ -91,7 +102,7 @@ export async function createLead(req: Request, res: Response, next: NextFunction
       action: 'CREATE_LEAD',
       module: 'LEADS',
       recordId: leadId,
-      newValue: { name, company, estimatedValue, stage },
+      newValue: { name: displayName, company, estimatedValue, stage },
       ipAddress: req.ip,
     });
 

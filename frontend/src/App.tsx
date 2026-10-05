@@ -21,7 +21,9 @@ import { ProjectDetails } from './pages/projects/ProjectDetails';
 import { TasksList } from './pages/tasks/TasksList';
 import { TaskKanban } from './pages/tasks/TaskKanban';
 import { AttendanceList } from './pages/attendance/AttendanceList';
+import { MyAttendancePage } from './pages/attendance/MyAttendancePage';
 import { LeaveList } from './pages/leave/LeaveList';
+
 import { PayrollList } from './pages/payroll/PayrollList';
 import { PayslipView } from './pages/payroll/PayslipView';
 import { LoansList } from './pages/loans/LoansList';
@@ -119,9 +121,11 @@ export const App: React.FC = () => {
         <Route path="tasks/kanban" element={<TaskKanban />} />
 
         {/* Time & Attendance */}
+        <Route path="my-attendance" element={<MyAttendancePage />} />
         <Route path="attendance" element={<AttendanceList />} />
         <Route path="leave" element={<LeaveList />} />
         <Route path="timesheets" element={<TimesheetsList />} />
+
 
         {/* Payroll & Disbursal */}
         <Route path="payroll" element={<PayrollList />} />

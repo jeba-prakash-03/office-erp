@@ -11,8 +11,11 @@ export interface AuthenticatedUser {
   lastName: string;
   roleId: string;
   roleName: string;
+  roles: string[];
   employeeId?: string | null;
+  departmentId?: string | null;
   clientId?: string | null;
+  companyId: string;
   permissions: string[];
 }
 
@@ -52,6 +55,7 @@ export async function authenticate(
       `SELECT u.id, u.email, u.first_name, u.last_name, u.role_id, u.status, u.locked_until,
               r.name as role_name,
               e.id as employee_record_id,
+              e.department_id as employee_department_id,
               c.id as client_record_id
        FROM users u
        JOIN roles r ON u.role_id = r.id
@@ -93,8 +97,11 @@ export async function authenticate(
       lastName: user.last_name,
       roleId: user.role_id,
       roleName: user.role_name,
+      roles: [user.role_name],
       employeeId: user.employee_record_id || null,
+      departmentId: user.employee_department_id || null,
       clientId: user.client_record_id || null,
+      companyId: 'company-default',
       permissions,
     };
 

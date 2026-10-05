@@ -804,6 +804,41 @@ export async function runMigrations() {
       INDEX idx_audit_module (module),
       INDEX idx_audit_user (user_id),
       INDEX idx_audit_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 46. Approval Requests
+    `CREATE TABLE IF NOT EXISTS approval_requests (
+      id VARCHAR(100) PRIMARY KEY,
+      entity_type VARCHAR(50) NOT NULL,
+      entity_id VARCHAR(100) NOT NULL,
+      requester_id VARCHAR(100) NOT NULL,
+      current_approver_id VARCHAR(100),
+      status ENUM('draft', 'pending', 'approved', 'rejected', 'cancelled', 'returned') NOT NULL DEFAULT 'pending',
+      submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_at DATETIME,
+      decided_by_user_id VARCHAR(100),
+      comments TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_approval_entity (entity_type, entity_id),
+      INDEX idx_approval_requester (requester_id),
+      INDEX idx_approval_approver (current_approver_id),
+      INDEX idx_approval_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 47. Approval History
+    `CREATE TABLE IF NOT EXISTS approval_history (
+      id VARCHAR(100) PRIMARY KEY,
+      request_id VARCHAR(100) NOT NULL,
+      action ENUM('submit', 'approve', 'reject', 'cancel', 'return', 'reassign') NOT NULL,
+      actor_user_id VARCHAR(100) NOT NULL,
+      actor_role VARCHAR(50),
+      previous_status VARCHAR(50) NOT NULL,
+      new_status VARCHAR(50) NOT NULL,
+      remarks TEXT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_history_request (request_id),
+      INDEX idx_history_actor (actor_user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   ];
 

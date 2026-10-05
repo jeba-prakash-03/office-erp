@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../utils/auditLogger';
+import { ApprovalService } from '../../services/approval.service';
 
 export async function listLeaveTypes(req: Request, res: Response, next: NextFunction) {
   try {
@@ -97,27 +98,86 @@ export async function applyLeave(req: Request, res: Response, next: NextFunction
     const leaveTypeId = req.body.leaveTypeId || req.body.leave_type_id;
     const startDate = req.body.startDate || req.body.start_date;
     const endDate = req.body.endDate || req.body.end_date;
-    const totalDays = req.body.totalDays || req.body.total_days;
+    const isHalfDay = req.body.isHalfDay || req.body.is_half_day || false;
     const reason = req.body.reason;
     const attachmentUrl = req.body.attachmentUrl || req.body.attachment_url;
 
-    if (!leaveTypeId || !startDate || !endDate || !totalDays || !reason) {
-      throw new AppError('Leave type, start date, end date, total days, and reason are required', 400);
+    if (!leaveTypeId || !startDate || !endDate || !reason) {
+      throw new AppError('Leave type, start date, end date, and reason are required', 400);
     }
 
-    const days = parseFloat(String(totalDays));
-    const year = new Date(startDate).getFullYear();
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new AppError('Invalid start date or end date format', 400);
+    }
+    if (start > end) {
+      throw new AppError('Start date cannot be after end date', 400);
+    }
+
+    // Calculate total leave days
+    let calculatedDays: number;
+    if (isHalfDay) {
+      calculatedDays = 0.5;
+    } else if (req.body.totalDays || req.body.total_days) {
+      calculatedDays = parseFloat(String(req.body.totalDays || req.body.total_days));
+    } else {
+      // Calculate working days (excluding Sundays by default)
+      let count = 0;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        if (d.getDay() !== 0) { // Exclude Sunday
+          count++;
+        }
+      }
+      calculatedDays = Math.max(1, count);
+    }
+
+    const year = start.getFullYear();
+
+    // Verify leave type exists
+    const ltRows = await query<any[]>('SELECT * FROM leave_types WHERE id = ?', [leaveTypeId]);
+    if (ltRows.length === 0) {
+      throw new AppError('Selected leave category does not exist', 404);
+    }
+
+    // Check for overlapping pending or approved leave requests
+    const overlapRows = await query<any[]>(
+      `SELECT id FROM leave_requests 
+       WHERE employee_id = ? 
+         AND status IN ('pending', 'approved') 
+         AND ((start_date <= ? AND end_date >= ?) OR (start_date <= ? AND end_date >= ?))`,
+      [employeeId, endDate, startDate, startDate, endDate]
+    );
+    if (overlapRows.length > 0) {
+      throw new AppError('You already have an active leave request covering this date period', 400);
+    }
 
     // Check balance
-    const balanceRows = await query<any[]>(
+    let balanceRows = await query<any[]>(
       'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?',
       [employeeId, leaveTypeId, year]
     );
 
+    if (balanceRows.length === 0) {
+      // Auto initialize balance from leave type if missing
+      const lt = ltRows[0];
+      const balId = `bal-${uuidv4()}`;
+      await query(
+        `INSERT IGNORE INTO leave_balances (id, employee_id, leave_type_id, year, total_days, used_days, pending_days, remaining_days, created_at)
+         VALUES (?, ?, ?, ?, ?, 0, 0, ?, NOW())`,
+        [balId, employeeId, lt.id, year, lt.days_allowed_per_year, lt.days_allowed_per_year]
+      );
+      balanceRows = await query<any[]>(
+        'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?',
+        [employeeId, leaveTypeId, year]
+      );
+    }
+
     if (balanceRows.length > 0) {
       const balance = balanceRows[0];
-      if (balance.remaining_days - balance.pending_days < days) {
-        throw new AppError(`Insufficient leave balance. You have ${balance.remaining_days - balance.pending_days} days available.`, 400);
+      const available = Number(balance.remaining_days) - Number(balance.pending_days);
+      if (available < calculatedDays) {
+        throw new AppError(`Insufficient leave balance. You have ${available.toFixed(1)} days available for ${ltRows[0].name}, but requested ${calculatedDays.toFixed(1)} days.`, 400);
       }
     }
 
@@ -128,7 +188,7 @@ export async function applyLeave(req: Request, res: Response, next: NextFunction
         `INSERT INTO leave_requests (
           id, employee_id, leave_type_id, start_date, end_date, total_days, reason, attachment_url, status, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
-        [requestId, employeeId, leaveTypeId, startDate, endDate, days, reason.trim(), attachmentUrl || null]
+        [requestId, employeeId, leaveTypeId, startDate, endDate, calculatedDays, String(reason).trim(), attachmentUrl || null]
       );
 
       // Increment pending days
@@ -136,8 +196,23 @@ export async function applyLeave(req: Request, res: Response, next: NextFunction
         `UPDATE leave_balances 
          SET pending_days = pending_days + ? 
          WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
-        [days, employeeId, leaveTypeId, year]
+        [calculatedDays, employeeId, leaveTypeId, year]
       );
+    });
+
+    // Find reporting manager
+    const empInfo = await query<any[]>('SELECT reporting_manager_id FROM employees WHERE id = ?', [employeeId]);
+    const managerId = empInfo[0]?.reporting_manager_id || null;
+
+    // Register with Universal Approval Engine
+    await ApprovalService.submitRequest({
+      entityType: 'leave',
+      entityId: requestId,
+      requesterId: employeeId,
+      currentApproverId: managerId,
+      comments: reason,
+      actorUserId: req.user!.id,
+      actorRole: req.user!.roleName,
     });
 
     await logAudit({
@@ -147,7 +222,7 @@ export async function applyLeave(req: Request, res: Response, next: NextFunction
       action: 'APPLY_LEAVE',
       module: 'LEAVE',
       recordId: requestId,
-      newValue: { leaveTypeId, startDate, endDate, totalDays: days },
+      newValue: { leaveTypeId, startDate, endDate, totalDays: calculatedDays },
       ipAddress: req.ip,
     });
 
@@ -248,6 +323,11 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
       throw new AppError(`Leave request is already ${leaveReq.status}`, 400);
     }
 
+    // Self-approval check
+    if (leaveReq.employee_id === req.user?.employeeId && req.user?.roleName !== 'super_admin') {
+      throw new AppError('Self-approval violation: You cannot approve your own leave request', 403);
+    }
+
     const year = new Date(leaveReq.start_date).getFullYear();
 
     await withTransaction(async (conn) => {
@@ -270,17 +350,20 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
           [leaveReq.total_days, leaveReq.total_days, leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
         );
 
-        // Mark attendance as 'leave' for each day in range
+        // Only sync attendance for dates that have already occurred or are today (never write future attendance)
+        const todayStr = new Date().toISOString().split('T')[0];
         const start = new Date(leaveReq.start_date);
         const end = new Date(leaveReq.end_date);
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toISOString().split('T')[0];
-          await conn.query(
-            `INSERT INTO attendance (id, employee_id, date, status, notes, created_at)
-             VALUES (?, ?, ?, 'leave', 'Approved Leave', NOW())
-             ON DUPLICATE KEY UPDATE status = 'leave', notes = 'Approved Leave'`,
-            [uuidv4(), leaveReq.employee_id, dateStr]
-          );
+          if (dateStr <= todayStr) {
+            await conn.query(
+              `INSERT INTO attendance (id, employee_id, date, status, notes, created_at)
+               VALUES (?, ?, ?, 'leave', 'Approved Leave', NOW())
+               ON DUPLICATE KEY UPDATE status = 'leave', notes = 'Approved Leave'`,
+              [uuidv4(), leaveReq.employee_id, dateStr]
+            );
+          }
         }
       } else {
         // Rejected: release pending days
@@ -291,32 +374,103 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
           [leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
         );
       }
-
-      // Notify employee
-      const empUser = await conn.query('SELECT user_id FROM employees WHERE id = ?', [leaveReq.employee_id]);
-      const userRows = empUser[0] as any[];
-      if (userRows[0]?.user_id) {
-        await conn.query(
-          `INSERT INTO notifications (id, user_id, title, message, type, link, created_at)
-           VALUES (?, ?, ?, ?, 'leave_status', '/leave', NOW())`,
-          [uuidv4(), userRows[0].user_id, `Leave Request ${status === 'approved' ? 'Approved' : 'Rejected'}`, `Your leave application from ${leaveReq.start_date} to ${leaveReq.end_date} has been ${status}.`, ]
-        );
-      }
     });
 
-    await logAudit({
-      userId: req.user?.id,
-      userEmail: req.user?.email,
-      userName: `${req.user?.firstName} ${req.user?.lastName}`,
-      action: `REVIEW_LEAVE_${status.toUpperCase()}`,
-      module: 'LEAVE',
-      recordId: id,
-      newValue: { status, remarks },
-      ipAddress: req.ip,
-    });
+    // Sync with Universal Approval Engine
+    try {
+      await ApprovalService.processDecision({
+        entityType: 'leave',
+        entityId: id,
+        action: status === 'approved' ? 'approve' : 'reject',
+        actorUserId: req.user!.id,
+        actorEmployeeId: req.user!.employeeId,
+        actorRole: req.user!.roleName,
+        actorPermissions: req.user!.permissions,
+        remarks,
+      });
+    } catch (approvalErr) {
+      // If approval request wasn't already in approval_requests, that's fine
+    }
 
     res.json({ success: true, message: `Leave request ${status} successfully` });
   } catch (error) {
     next(error);
   }
 }
+
+export async function cancelLeaveRequest(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const reqRows = await query<any[]>('SELECT * FROM leave_requests WHERE id = ?', [id]);
+    if (reqRows.length === 0) throw new AppError('Leave request not found', 404);
+
+    const leaveReq = reqRows[0];
+    const employeeId = await resolveEmployeeId(req);
+    const isOwner = employeeId && leaveReq.employee_id === employeeId;
+    const isAdmin = req.user?.roleName === 'super_admin' || req.user?.roleName === 'admin' || req.user?.roleName === 'hr_manager';
+
+    if (!isOwner && !isAdmin) {
+      throw new AppError('You do not have permission to cancel this leave request', 403);
+    }
+
+    if (leaveReq.status === 'cancelled' || leaveReq.status === 'rejected') {
+      throw new AppError(`Leave request is already ${leaveReq.status}`, 400);
+    }
+
+    const year = new Date(leaveReq.start_date).getFullYear();
+
+    await withTransaction(async (conn) => {
+      // Release balance
+      if (leaveReq.status === 'pending') {
+        await conn.query(
+          `UPDATE leave_balances 
+           SET pending_days = GREATEST(0, pending_days - ?)
+           WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
+          [leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
+        );
+      } else if (leaveReq.status === 'approved') {
+        await conn.query(
+          `UPDATE leave_balances 
+           SET used_days = GREATEST(0, used_days - ?),
+               remaining_days = remaining_days + ?
+           WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
+          [leaveReq.total_days, leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
+        );
+
+        // Delete or revert attendance records for this period
+        const start = new Date(leaveReq.start_date);
+        const end = new Date(leaveReq.end_date);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split('T')[0];
+          await conn.query(
+            `DELETE FROM attendance WHERE employee_id = ? AND date = ? AND status = 'leave' AND notes = 'Approved Leave'`,
+            [leaveReq.employee_id, dateStr]
+          );
+        }
+      }
+
+      await conn.query(
+        `UPDATE leave_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?`,
+        [id]
+      );
+    });
+
+    try {
+      await ApprovalService.processDecision({
+        entityType: 'leave',
+        entityId: id,
+        action: 'cancel',
+        actorUserId: req.user!.id,
+        actorEmployeeId: req.user!.employeeId,
+        actorRole: req.user!.roleName,
+        actorPermissions: req.user!.permissions,
+        remarks: 'Cancelled by user',
+      });
+    } catch (e) {}
+
+    res.json({ success: true, message: 'Leave request cancelled successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, XCircle, AlertTriangle, Calendar, 
-  LogIn, LogOut, FileText, Search, UserCheck 
+  Search, UserCheck, Users, CalendarCheck, HelpCircle, Edit3, Plus, RefreshCw, FileCheck
 } from 'lucide-react';
-import { attendanceApi, employeesApi } from '../../api/services';
-import { Attendance, Employee } from '../../types';
+import { attendanceApi, departmentsApi } from '../../api/services';
+import { Attendance, AttendanceOverview, Department } from '../../types';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { DataTable, Column } from '../../components/ui/DataTable';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { StatsCard } from '../../components/ui/StatsCard';
-import { CorrectionModal } from './CorrectionModal';
+import { AdminCorrectionModal } from './AdminCorrectionModal';
+import { ReviewCorrectionsModal } from './ReviewCorrectionsModal';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -17,43 +18,111 @@ export const AttendanceList: React.FC = () => {
   const { user, hasPermission } = useAuth();
   const { showNotification } = useNotification();
 
+  // State
   const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [todayStatus, setTodayStatus] = useState<any>(null);
+  const [overview, setOverview] = useState<AttendanceOverview | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
-  const [clocking, setClocking] = useState(false);
-  const [month, setMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
-  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const [preset, setPreset] = useState<'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom'>('today');
+  const [date, setDate] = useState<string>(todayStr);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [departmentId, setDepartmentId] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
+  const [page, setPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalRecords, setTotalRecords] = useState<number>(0);
+
+  // Modals
+  const [adminCorrectionOpen, setAdminCorrectionOpen] = useState(false);
+  const [reviewCorrectionsOpen, setReviewCorrectionsOpen] = useState(false);
+  const [selectedAttendance, setSelectedAttendance] = useState<Attendance | null>(null);
+
+  // Load Departments
+  useEffect(() => {
+    departmentsApi.getAll().then((res: any) => {
+      setDepartments(Array.isArray(res.data?.data) ? res.data.data : (res.data?.data?.records || []));
+    }).catch(console.error);
+  }, []);
+
+  // Handle Preset Changes
+  const applyPreset = (p: 'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom') => {
+    setPreset(p);
+    setPage(1);
+    const now = new Date();
+    if (p === 'today') {
+      setDate(now.toISOString().substring(0, 10));
+      setStartDate('');
+      setEndDate('');
+    } else if (p === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      setDate(y.toISOString().substring(0, 10));
+      setStartDate('');
+      setEndDate('');
+    } else if (p === 'this_week') {
+      const first = new Date(now);
+      first.setDate(now.getDate() - now.getDay());
+      setDate('');
+      setStartDate(first.toISOString().substring(0, 10));
+      setEndDate(now.toISOString().substring(0, 10));
+    } else if (p === 'this_month') {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDate('');
+      setStartDate(first.toISOString().substring(0, 10));
+      setEndDate(now.toISOString().substring(0, 10));
+    }
+  };
 
   const fetchAttendance = async () => {
     try {
       setLoading(true);
-      const [listRes, todayRes] = await Promise.all([
-        attendanceApi.getAll({
-          month,
-          status: statusFilter || undefined,
-          search: search || undefined,
-          page,
-          limit: 20,
-        }),
-        attendanceApi.getTodayStatus(),
+
+      const params: any = {
+        page,
+        limit: 20,
+        department_id: departmentId || undefined,
+        status: statusFilter || undefined,
+        search: search || undefined,
+      };
+
+      if (date) {
+        params.date = date;
+      } else if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+      }
+
+      const [listRes, overviewRes] = await Promise.all([
+        attendanceApi.getAll(params),
+        attendanceApi.getOverview({ date: date || todayStr }),
       ]);
 
-      setAttendances(listRes.data.data.records || listRes.data.data);
-      if (listRes.data.data.pagination) {
-        setTotalPages(listRes.data.data.pagination.totalPages || 1);
-        setTotalRecords(listRes.data.data.pagination.total || 0);
+      if (listRes.data?.success) {
+        const payload: any = listRes.data.data;
+        if (payload && Array.isArray(payload.records)) {
+          setAttendances(payload.records);
+          setTotalPages(payload.pagination?.totalPages || 1);
+          setTotalRecords(payload.pagination?.total || 0);
+        } else if (Array.isArray(payload)) {
+          setAttendances(payload);
+          setTotalPages(1);
+          setTotalRecords(payload.length);
+        } else {
+          setAttendances([]);
+        }
       }
-      setTodayStatus(todayRes.data.data);
-    } catch (err) {
-      console.error(err);
-      showNotification('error', 'Failed to fetch attendance records');
+
+      if (overviewRes.data?.success) {
+        setOverview(overviewRes.data.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to load attendance list', err);
+      showNotification('error', err.response?.data?.message || 'Failed to fetch attendance data');
     } finally {
       setLoading(false);
     }
@@ -61,255 +130,360 @@ export const AttendanceList: React.FC = () => {
 
   useEffect(() => {
     fetchAttendance();
-  }, [month, statusFilter, search, page]);
+  }, [date, startDate, endDate, departmentId, statusFilter, search, page]);
 
-  const handleClockIn = async () => {
-    setClocking(true);
-    try {
-      await attendanceApi.clockIn({});
-      showNotification('success', 'Clocked in successfully! Have a great workday.');
-      fetchAttendance();
-    } catch (err: any) {
-      showNotification('error', err.response?.data?.message || 'Failed to clock in');
-    } finally {
-      setClocking(false);
+  const formatTimeString = (dtStr?: string | null) => {
+    if (!dtStr) return '—';
+    if (dtStr.length > 10) {
+      const d = new Date(dtStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+      return dtStr.substring(11, 16);
     }
+    return dtStr;
   };
 
-  const handleClockOut = async () => {
-    setClocking(true);
-    try {
-      await attendanceApi.clockOut({});
-      showNotification('success', 'Clocked out successfully!');
-      fetchAttendance();
-    } catch (err: any) {
-      showNotification('error', err.response?.data?.message || 'Failed to clock out');
-    } finally {
-      setClocking(false);
+  const formatDateString = (dtStr?: string | null) => {
+    if (!dtStr) return '—';
+    const clean = String(dtStr).substring(0, 10);
+    const d = new Date(clean + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
     }
+    return clean;
   };
 
-  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+  const handleEditRecord = (rec: Attendance) => {
+    setSelectedAttendance(rec);
+    setAdminCorrectionOpen(true);
+  };
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const checkInTime = todayStatus?.check_in || todayStatus?.clock_in;
-  const checkOutTime = todayStatus?.check_out || todayStatus?.clock_out;
-  const isClockedIn = !!checkInTime && !checkOutTime;
-  const isClockedOut = !!checkOutTime;
+  const handleNewManualEntry = () => {
+    setSelectedAttendance(null);
+    setAdminCorrectionOpen(true);
+  };
 
   const columns: Column<Attendance>[] = [
     {
       header: 'Employee',
-      accessor: (a: any) => (
-        <div>
-          <span className="font-medium text-slate-900 dark:text-white">
-            {a.employee_name || (a.first_name ? `${a.first_name} ${a.last_name || ''}` : `Employee #${a.employee_id}`)}
-          </span>
-          <div className="text-xs text-slate-500">{a.employee_code || a.designation || 'Staff'}</div>
+      accessor: (a: Attendance) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-bold flex items-center justify-center text-xs shrink-0">
+            {(a.employee_name || 'E').substring(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <span className="font-semibold text-slate-900 dark:text-white block text-xs">
+              {a.employee_name || `Employee #${a.employee_id}`}
+            </span>
+            <div className="text-[11px] text-slate-500">
+              {a.employee_code || `EMP-${a.employee_id}`}
+            </div>
+          </div>
         </div>
       ),
     },
     {
+      header: 'Department',
+      accessor: (a: Attendance) => (
+        <span className="text-xs text-slate-600 dark:text-slate-300">
+          {a.department_name || '—'}
+        </span>
+      ),
+    },
+    {
       header: 'Date',
-      accessor: (a: any) => (
-        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-          {a.date ? String(a.date).substring(0, 10) : '—'}
+      accessor: (a: Attendance) => (
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+          {formatDateString(a.date)}
         </span>
       ),
     },
     {
       header: 'Clock In',
-      accessor: (a: any) => {
+      accessor: (a: Attendance) => {
         const inVal = a.check_in || a.clock_in;
         return (
-          <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-            {inVal ? (String(inVal).length > 10 ? String(inVal).substring(11, 16) : inVal) : '—'}
+          <span className="text-xs font-mono font-medium text-emerald-600 dark:text-emerald-400">
+            {formatTimeString(inVal)}
           </span>
         );
       },
     },
     {
       header: 'Clock Out',
-      accessor: (a: any) => {
+      accessor: (a: Attendance) => {
         const outVal = a.check_out || a.clock_out;
         return (
-          <span className="text-xs font-mono text-blue-600 dark:text-blue-400 font-semibold">
-            {outVal ? (String(outVal).length > 10 ? String(outVal).substring(11, 16) : outVal) : '—'}
+          <span className="text-xs font-mono font-medium text-blue-600 dark:text-blue-400">
+            {formatTimeString(outVal)}
           </span>
         );
       },
     },
     {
       header: 'Working Hours',
-      accessor: (a: any) => (
-        <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
-          {a.total_hours ? `${Number(a.total_hours).toFixed(1)} hrs` : '—'}
+      accessor: (a: Attendance) => (
+        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+          {a.working_hours_formatted || (a.total_hours ? `${a.total_hours} hrs` : '—')}
         </span>
       ),
     },
     {
       header: 'Overtime',
-      accessor: (a: any) => (
-        <span className="text-xs text-slate-500">
-          {Number(a.overtime_hours || 0) > 0 ? `+${Number(a.overtime_hours).toFixed(1)} hrs` : '0 hrs'}
+      accessor: (a: Attendance) => (
+        <span className="text-xs text-slate-500 font-mono">
+          {a.overtime_hours_formatted || (Number(a.overtime_hours || 0) > 0 ? `+${a.overtime_hours} hrs` : '0h 00m')}
         </span>
       ),
     },
     {
       header: 'Status',
+      accessor: (a: Attendance) => <StatusBadge status={a.status || 'present'} />,
+    },
+    {
+      header: 'Actions',
       align: 'right',
-      accessor: (a: any) => <StatusBadge status={a.status || 'present'} />,
+      accessor: (a: Attendance) => (
+        <button
+          onClick={() => handleEditRecord(a)}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800"
+          title="Administrative Manual Correction"
+        >
+          <Edit3 className="w-3.5 h-3.5" />
+          Correct
+        </button>
+      ),
     },
   ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Attendance & Time Tracking"
-        subtitle="Manage daily punches, working hours, overtime, and monthly attendance logs"
+        title="Attendance Management"
+        subtitle="Monitor organizational attendance, review working duration logs, and perform authorized audit corrections"
         action={
-          <button
-            onClick={() => setCorrectionModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
-          >
-            <FileText className="w-4 h-4" />
-            Request Correction
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setReviewCorrectionsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm"
+            >
+              <FileCheck className="w-4 h-4 text-indigo-500" />
+              Review Corrections
+            </button>
+            <button
+              onClick={handleNewManualEntry}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Manual Punch Entry
+            </button>
+          </div>
         }
       />
 
-      {/* Clock In / Out Banner Card */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadow-xl flex flex-wrap items-center justify-between gap-6">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-            <Clock className="w-4 h-4 text-brand-400" />
-            <span>Today: {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} • <span className="font-mono text-white text-sm">{currentTime}</span></span>
+      {/* Today's Overview Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatsCard
+          title="Total Employees"
+          value={overview?.totalEmployees ?? 0}
+          icon={Users}
+          subtitle="Active workforce"
+        />
+        <StatsCard
+          title="Present"
+          value={overview?.present ?? 0}
+          icon={CheckCircle}
+          subtitle="Clocked in today"
+        />
+        <StatsCard
+          title="Absent"
+          value={overview?.absent ?? 0}
+          icon={XCircle}
+          subtitle="No punch recorded"
+        />
+        <StatsCard
+          title="Late Arrivals"
+          value={overview?.late ?? 0}
+          icon={AlertTriangle}
+          subtitle="Punched after 09:15"
+        />
+        <StatsCard
+          title="On Leave"
+          value={overview?.onLeave ?? 0}
+          icon={CalendarCheck}
+          subtitle="Approved leaves"
+        />
+        <StatsCard
+          title="Missing Punch"
+          value={overview?.missingPunch ?? 0}
+          icon={HelpCircle}
+          subtitle="Unclosed shifts"
+        />
+      </div>
+
+      {/* Filters Toolbar */}
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4 shadow-sm">
+        {/* Preset Selection Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700/60 pb-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-2">
+              Timeframe:
+            </span>
+            {(['today', 'yesterday', 'this_week', 'this_month', 'custom'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => applyPreset(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                  preset === p
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {p.replace('_', ' ')}
+              </button>
+            ))}
           </div>
-          <h2 className="text-2xl font-bold tracking-tight">
-            {isClockedOut
-              ? 'Workday Completed'
-              : isClockedIn
-              ? 'Currently Working'
-              : 'Not Clocked In Yet'}
-          </h2>
-          <p className="text-xs text-slate-400">
-            {checkInTime
-              ? `Punched In at ${String(checkInTime).length > 10 ? String(checkInTime).substring(11, 16) : checkInTime}`
-              : 'Record your check-in timestamp to start your workday.'}
-            {checkOutTime && ` • Punched Out at ${String(checkOutTime).length > 10 ? String(checkOutTime).substring(11, 16) : checkOutTime}`}
-            {todayStatus?.total_hours && ` • Total: ${todayStatus.total_hours} hrs`}
-          </p>
+
+          <button
+            onClick={fetchAttendance}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh Records
+          </button>
         </div>
 
-        <div className="flex items-center gap-3">
-          {!isClockedIn && !isClockedOut && (
-            <button
-              onClick={handleClockIn}
-              disabled={clocking}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl shadow-lg transition-all transform active:scale-95 disabled:opacity-50"
-            >
-              <LogIn className="w-5 h-5" />
-              {clocking ? 'Punching In...' : 'Clock In Now'}
-            </button>
-          )}
-
-          {isClockedIn && (
-            <button
-              onClick={handleClockOut}
-              disabled={clocking}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl shadow-lg transition-all transform active:scale-95 disabled:opacity-50"
-            >
-              <LogOut className="w-5 h-5" />
-              {clocking ? 'Punching Out...' : 'Clock Out Now'}
-            </button>
-          )}
-
-          {isClockedOut && (
-            <div className="px-5 py-2.5 bg-emerald-500/20 border border-emerald-400/40 rounded-xl text-emerald-100 font-medium text-sm flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-emerald-300" />
-              Clocked Out for Today
+        {/* Detailed Filter Inputs */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          {preset === 'custom' ? (
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  setDate('');
+                  setPage(1);
+                }}
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+              />
+              <span className="text-xs text-slate-400">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  setDate('');
+                  setPage(1);
+                }}
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+              />
+            </div>
+          ) : (
+            <div>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setPreset('custom');
+                  setStartDate('');
+                  setEndDate('');
+                  setPage(1);
+                }}
+                className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+              />
             </div>
           )}
+
+          <div>
+            <select
+              value={departmentId}
+              onChange={(e) => {
+                setDepartmentId(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+            >
+              <option value="">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+            >
+              <option value="">All Statuses</option>
+              <option value="present">Present</option>
+              <option value="late">Late</option>
+              <option value="absent">Absent</option>
+              <option value="on_leave">On Leave</option>
+              <option value="missing_punch">Missing Punch</option>
+              <option value="half_day">Half Day</option>
+            </select>
+          </div>
+
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search employee name/code..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Filter and Month Bar */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-medium text-slate-500">Month:</span>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => {
-              setMonth(e.target.value);
-              setPage(1);
-            }}
-            className="px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none"
-          />
-        </div>
-
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search employee..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none"
-          />
-        </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
-            setPage(1);
-          }}
-          className="px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white outline-none"
-        >
-          <option value="">All Statuses</option>
-          <option value="present">Present</option>
-          <option value="late">Late</option>
-          <option value="half_day">Half Day</option>
-          <option value="absent">Absent</option>
-          <option value="on_leave">On Leave</option>
-          <option value="holiday">Holiday</option>
-        </select>
-      </div>
-
-      {/* Attendance Log Table */}
+      {/* Attendance Table */}
       <DataTable
         columns={columns}
         data={attendances}
         keyField="id"
         loading={loading}
-        emptyMessage="No attendance logs found for this period."
+        emptyMessage={
+          date
+            ? `No attendance records recorded for ${formatDateString(date)}.`
+            : `No attendance records found matching selected filters.`
+        }
         pagination={{
           page,
           totalPages,
           totalRecords,
-          onPageChange: setPage,
+          onPageChange: (p) => setPage(p),
         }}
       />
 
-      {/* Correction Request Modal */}
-      {correctionModalOpen && (
-        <CorrectionModal
-          isOpen={correctionModalOpen}
-          onClose={() => setCorrectionModalOpen(false)}
-          onSuccess={fetchAttendance}
-        />
-      )}
+      {/* Admin Manual Correction Modal */}
+      <AdminCorrectionModal
+        isOpen={adminCorrectionOpen}
+        onClose={() => setAdminCorrectionOpen(false)}
+        onSuccess={() => fetchAttendance()}
+        initialAttendance={selectedAttendance}
+      />
+
+      {/* Review Corrections Modal */}
+      <ReviewCorrectionsModal
+        isOpen={reviewCorrectionsOpen}
+        onClose={() => setReviewCorrectionsOpen(false)}
+        onSuccess={() => fetchAttendance()}
+      />
     </div>
   );
 };

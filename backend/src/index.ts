@@ -39,6 +39,7 @@ import reportsRoutes from './modules/reports/reports.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import auditRoutes from './modules/audit/audit.routes';
 import searchRoutes from './modules/search/search.routes';
+import approvalsRoutes from './modules/approvals/approvals.routes';
 
 const app = express();
 
@@ -109,6 +110,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/approvals', approvalsRoutes);
 
 // Catch 404 for unhandled API routes
 app.use('/api/*', (req, res) => {

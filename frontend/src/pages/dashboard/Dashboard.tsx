@@ -4,6 +4,7 @@ import { dashboardApi, attendanceApi } from '../../api/services';
 import { useNotifications } from '../../context/NotificationContext';
 import { StatsCard } from '../../components/ui/StatsCard';
 import { LoadingState } from '../../components/ui/LoadingState';
+import { formatCurrency } from '../../utils/formatters';
 import {
   Users,
   Briefcase,
@@ -187,7 +188,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         <StatsCard
           title="Monthly Income"
-          value={`$${Number(stats.financials?.monthlyIncome || 0).toLocaleString()}`}
+          value={formatCurrency(stats.financials?.monthlyIncome || 0)}
           icon={TrendingUp}
           subtitle="Client invoices & revenue"
           iconBgColor="bg-emerald-50 dark:bg-emerald-950/50"
@@ -195,7 +196,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatsCard
           title="Monthly Expenses"
-          value={`$${Number(stats.financials?.monthlyExpenses || 0).toLocaleString()}`}
+          value={formatCurrency(stats.financials?.monthlyExpenses || 0)}
           icon={DollarSign}
           subtitle="Operations & vendor overhead"
           iconBgColor="bg-rose-50 dark:bg-rose-950/50"
@@ -203,7 +204,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatsCard
           title="Net Profit (Month)"
-          value={`$${Number(stats.financials?.netProfit || 0).toLocaleString()}`}
+          value={formatCurrency(stats.financials?.netProfit || 0)}
           icon={DollarSign}
           subtitle="Income minus expenses"
           iconBgColor="bg-indigo-50 dark:bg-indigo-950/50"
@@ -211,7 +212,7 @@ export const Dashboard: React.FC = () => {
         />
         <StatsCard
           title="Outstanding Receivables"
-          value={`$${Number(stats.financials?.outstandingReceivables || 0).toLocaleString()}`}
+          value={formatCurrency(stats.financials?.outstandingReceivables || 0)}
           icon={FileText}
           subtitle={`${stats.financials?.overdueInvoices || 0} overdue invoices`}
           iconBgColor="bg-orange-50 dark:bg-orange-950/50"
