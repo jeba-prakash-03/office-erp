@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { employeesApi } from '../../api/services';
-import { Employee } from '../../types';
+import { employeesApi, companyApi } from '../../api/services';
+import { Employee, CompanySettings } from '../../types';
 import { useNotifications } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { LoadingState } from '../../components/ui/LoadingState';
+import { formatCurrency, formatDate, getInitials } from '../../utils/formatters';
 import {
   User,
   Briefcase,
@@ -30,6 +31,7 @@ import {
 export const EmployeeDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [employee, setEmployee] = useState<Employee | null>(null);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -46,9 +48,15 @@ export const EmployeeDetails: React.FC = () => {
     if (!id) return;
     try {
       setLoading(true);
-      const res = await employeesApi.getById(id);
-      if (res.data?.success) {
-        setEmployee(res.data.data);
+      const [empRes, compRes] = await Promise.all([
+        employeesApi.getById(id),
+        companyApi.getSettings().catch(() => ({ data: { data: null } })),
+      ]);
+      if (empRes.data?.success) {
+        setEmployee(empRes.data.data);
+      }
+      if (compRes.data?.data) {
+        setCompanySettings(compRes.data.data);
       }
     } catch (err: any) {
       showToast(err.message || 'Failed to load employee profile', 'error');
@@ -150,7 +158,7 @@ export const EmployeeDetails: React.FC = () => {
               {employee.profile_photo ? (
                 <img src={employee.profile_photo} alt="" className="w-full h-full object-cover" />
               ) : (
-                `${employee.first_name[0]}${employee.last_name[0]}`
+                getInitials(employee.first_name, employee.last_name)
               )}
             </div>
             <div>
@@ -161,15 +169,15 @@ export const EmployeeDetails: React.FC = () => {
                 <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                   {employee.employee_id}
                 </span>
-                <StatusBadge status={employee.employment_status} />
+                <StatusBadge status={employee.employment_status || 'active'} />
               </div>
               <p className="text-sm font-medium text-brand-600 dark:text-brand-400 mt-0.5">
-                {employee.designation} • {employee.department_name || 'General Department'}
+                {employee.designation} • {employee.department_name || 'Unassigned Department'}
               </p>
               <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-500 dark:text-slate-400">
                 <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {employee.email}</span>
                 {employee.phone && <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {employee.phone}</span>}
-                <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Joined {employee.joining_date ? employee.joining_date.split('T')[0] : 'N/A'}</span>
+                <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Joined {formatDate(employee.joining_date)}</span>
               </div>
             </div>
           </div>
@@ -178,7 +186,7 @@ export const EmployeeDetails: React.FC = () => {
             <div className="text-right sm:border-l sm:border-slate-200 dark:sm:border-slate-800 sm:pl-6">
               <span className="text-[11px] text-slate-400 block font-medium">Base Salary</span>
               <span className="text-xl font-bold text-slate-900 dark:text-white">
-                ${Number(employee.basic_salary).toLocaleString()}
+                {formatCurrency(employee.basic_salary, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}
               </span>
               <span className="text-[11px] text-slate-400 block capitalize">{employee.employment_type?.replace(/_/g, ' ')}</span>
             </div>
@@ -306,19 +314,19 @@ export const EmployeeDetails: React.FC = () => {
                 <h4 className="font-bold text-slate-900 dark:text-white mb-2">Monthly Earnings Breakdown</h4>
                 <div className="flex justify-between py-1 border-b border-slate-200 dark:border-slate-700">
                   <span className="text-slate-500">Basic Pay:</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">${Number(employee.basic_salary).toLocaleString()}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{formatCurrency(employee.basic_salary, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200 dark:border-slate-700">
                   <span className="text-slate-500">House Rent Allowance (HRA):</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">${Number(employee.salaryStructure?.hra || 0).toLocaleString()}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{formatCurrency(employee.salaryStructure?.hra || 0, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200 dark:border-slate-700">
                   <span className="text-slate-500">Special Allowance:</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">${Number(employee.salaryStructure?.special_allowance || 0).toLocaleString()}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{formatCurrency(employee.salaryStructure?.special_allowance || 0, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</span>
                 </div>
                 <div className="flex justify-between py-1 text-emerald-600 font-bold">
                   <span>Gross Monthly Earning:</span>
-                  <span>${(Number(employee.basic_salary) + Number(employee.salaryStructure?.hra || 0) + Number(employee.salaryStructure?.special_allowance || 0)).toLocaleString()}</span>
+                  <span>{formatCurrency((Number(employee.basic_salary) + Number(employee.salaryStructure?.hra || 0) + Number(employee.salaryStructure?.special_allowance || 0)), companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</span>
                 </div>
               </div>
 
@@ -453,9 +461,9 @@ export const EmployeeDetails: React.FC = () => {
                     (employee.payslips || []).map((ps) => (
                       <tr key={ps.id}>
                         <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">{ps.month}/{ps.year}</td>
-                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">${Number(ps.gross_salary).toLocaleString()}</td>
-                        <td className="py-2.5 px-3 text-rose-500">-${(Number(ps.tax_deductions) + Number(ps.pf_deductions) + Number(ps.unpaid_leave_deductions)).toLocaleString()}</td>
-                        <td className="py-2.5 px-3 font-bold text-emerald-600">${Number(ps.net_salary).toLocaleString()}</td>
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{formatCurrency(ps.gross_salary, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</td>
+                        <td className="py-2.5 px-3 text-rose-500">-{formatCurrency((Number(ps.tax_deductions) + Number(ps.pf_deductions) + Number(ps.unpaid_leave_deductions)), companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</td>
+                        <td className="py-2.5 px-3 font-bold text-emerald-600">{formatCurrency(ps.net_salary, companySettings?.currency || 'INR', companySettings?.currency_symbol || '₹')}</td>
                         <td className="py-2.5 px-3"><StatusBadge status={ps.payment_status} /></td>
                         <td className="py-2.5 px-3 text-right">
                           <Link

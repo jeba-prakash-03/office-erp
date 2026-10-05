@@ -17,11 +17,26 @@ export async function getCompanySettings(req: Request, res: Response, next: Next
 
 export async function updateCompanySettings(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      companyName, companyEmail, phone, website, address, city, state, country, postalCode,
-      logoUrl, gstNumber, panNumber, cinNumber, taxId, currency, currencySymbol, timezone,
-      workingDaysPerWeek, standardHoursPerDay, payrollPayDate
-    } = req.body;
+    const companyName = req.body.companyName || req.body.company_name;
+    const companyEmail = req.body.companyEmail || req.body.company_email || req.body.email;
+    const phone = req.body.phone;
+    const website = req.body.website;
+    const address = req.body.address;
+    const city = req.body.city;
+    const state = req.body.state;
+    const country = req.body.country;
+    const postalCode = req.body.postalCode || req.body.postal_code || req.body.zip_code;
+    const logoUrl = req.body.logoUrl || req.body.logo_url;
+    const gstNumber = req.body.gstNumber || req.body.gst_number;
+    const panNumber = req.body.panNumber || req.body.pan_number;
+    const cinNumber = req.body.cinNumber || req.body.cin_number;
+    const taxId = req.body.taxId || req.body.tax_id;
+    const currency = req.body.currency;
+    const currencySymbol = req.body.currencySymbol || req.body.currency_symbol;
+    const timezone = req.body.timezone;
+    const workingDaysPerWeek = req.body.workingDaysPerWeek || req.body.working_days_per_week;
+    const standardHoursPerDay = req.body.standardHoursPerDay || req.body.standard_hours_per_day;
+    const payrollPayDate = req.body.payrollPayDate || req.body.payroll_pay_date;
 
     const existing = await query<any[]>('SELECT * FROM company_settings LIMIT 1');
     const id = existing.length > 0 ? existing[0].id : 'company-settings-001';
@@ -37,7 +52,7 @@ export async function updateCompanySettings(req: Request, res: Response, next: N
           id, companyName || '', companyEmail || '', phone || null, website || null,
           address || null, city || null, state || null, country || null, postalCode || null,
           logoUrl || null, gstNumber || null, panNumber || null, cinNumber || null, taxId || null,
-          currency || 'USD', currencySymbol || '$', timezone || 'UTC',
+          currency || 'INR', currencySymbol || '₹', timezone || 'Asia/Kolkata',
           workingDaysPerWeek || 5, standardHoursPerDay || 8.0, payrollPayDate || 1
         ]
       );

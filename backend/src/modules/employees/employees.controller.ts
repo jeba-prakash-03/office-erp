@@ -5,27 +5,54 @@ import { query, withTransaction } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../utils/auditLogger';
 
+export async function getEmployeeStats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const [totalRows, activeRows, onLeaveRows, newRows, probationRows] = await Promise.all([
+      query<any[]>('SELECT COUNT(*) as count FROM employees WHERE deleted_at IS NULL'),
+      query<any[]>('SELECT COUNT(*) as count FROM employees WHERE employment_status = "active" AND deleted_at IS NULL'),
+      query<any[]>(`SELECT COUNT(DISTINCT employee_id) as count FROM leave_requests WHERE status = 'approved' AND CURRENT_DATE BETWEEN start_date AND end_date`),
+      query<any[]>(`SELECT COUNT(*) as count FROM employees WHERE deleted_at IS NULL AND joining_date >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')`),
+      query<any[]>('SELECT COUNT(*) as count FROM employees WHERE employment_status = "probation" AND deleted_at IS NULL'),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        total: Number(totalRows[0]?.count || 0),
+        active: Number(activeRows[0]?.count || 0),
+        onLeave: Number(onLeaveRows[0]?.count || 0),
+        newThisMonth: Number(newRows[0]?.count || 0),
+        probation: Number(probationRows[0]?.count || 0),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function listEmployees(req: Request, res: Response, next: NextFunction) {
   try {
     const page = parseInt(req.query.page as string || '1', 10);
     const limit = parseInt(req.query.limit as string || '10', 10);
-    const search = req.query.search as string || '';
-    const departmentId = req.query.departmentId as string || '';
-    const employmentStatus = req.query.employmentStatus as string || '';
-    const employmentType = req.query.employmentType as string || '';
+    const search = ((req.query.search || req.query.q) as string || '').trim();
+    const departmentId = ((req.query.departmentId || req.query.department_id || req.query.department) as string || '').trim();
+    const employmentStatus = ((req.query.employmentStatus || req.query.employment_status || req.query.status) as string || '').trim();
+    const employmentType = ((req.query.employmentType || req.query.employment_type) as string || '').trim();
+    const designation = ((req.query.designation) as string || '').trim();
+    const managerId = ((req.query.managerId || req.query.manager_id || req.query.reporting_manager_id) as string || '').trim();
     const offset = (page - 1) * limit;
 
     let whereClause = 'WHERE e.deleted_at IS NULL';
     const params: any[] = [];
 
     if (search) {
-      whereClause += ' AND (e.first_name LIKE ? OR e.last_name LIKE ? OR e.email LIKE ? OR e.employee_id LIKE ? OR e.designation LIKE ?)';
+      whereClause += ' AND (e.first_name LIKE ? OR e.last_name LIKE ? OR e.email LIKE ? OR e.employee_id LIKE ? OR e.designation LIKE ? OR e.phone LIKE ? OR CONCAT(e.first_name, " ", e.last_name) LIKE ?)';
       const s = `%${search}%`;
-      params.push(s, s, s, s, s);
+      params.push(s, s, s, s, s, s, s);
     }
     if (departmentId) {
-      whereClause += ' AND e.department_id = ?';
-      params.push(departmentId);
+      whereClause += ' AND (e.department_id = ? OR d.name = ? OR d.id = ?)';
+      params.push(departmentId, departmentId, departmentId);
     }
     if (employmentStatus) {
       whereClause += ' AND e.employment_status = ?';
@@ -35,8 +62,19 @@ export async function listEmployees(req: Request, res: Response, next: NextFunct
       whereClause += ' AND e.employment_type = ?';
       params.push(employmentType);
     }
+    if (designation) {
+      whereClause += ' AND e.designation LIKE ?';
+      params.push(`%${designation}%`);
+    }
+    if (managerId) {
+      whereClause += ' AND e.reporting_manager_id = ?';
+      params.push(managerId);
+    }
 
-    const countRows = await query<any[]>(`SELECT COUNT(*) as total FROM employees e ${whereClause}`, params);
+    const countRows = await query<any[]>(
+      `SELECT COUNT(*) as total FROM employees e LEFT JOIN departments d ON e.department_id = d.id ${whereClause}`,
+      params
+    );
     const total = countRows[0]?.total || 0;
 
     const dataSql = `
@@ -359,17 +397,40 @@ export async function createEmployee(req: Request, res: Response, next: NextFunc
 export async function updateEmployee(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const {
-      firstName, lastName, phone, dateOfBirth, gender, profilePhoto, address,
-      emergencyContactName, emergencyContactPhone, emergencyContactRelation,
-      departmentId, designation, roleId, joiningDate, employmentType, employmentStatus,
-      reportingManagerId, basicSalary, bankName, bankAccountNumber, bankIfsc,
-      panNumber, identityNumber, taxId, skills, experienceYears, notes,
-      salaryStructure
-    } = req.body;
+    const firstName = req.body.firstName !== undefined ? req.body.firstName : req.body.first_name;
+    const lastName = req.body.lastName !== undefined ? req.body.lastName : req.body.last_name;
+    const phone = req.body.phone !== undefined ? req.body.phone : undefined;
+    const dateOfBirth = req.body.dateOfBirth !== undefined ? req.body.dateOfBirth : req.body.date_of_birth;
+    const gender = req.body.gender !== undefined ? req.body.gender : undefined;
+    const profilePhoto = req.body.profilePhoto !== undefined ? req.body.profilePhoto : req.body.profile_photo;
+    const address = req.body.address !== undefined ? req.body.address : req.body.residential_address;
+    const emergencyContactName = req.body.emergencyContactName !== undefined ? req.body.emergencyContactName : req.body.emergency_contact_name;
+    const emergencyContactPhone = req.body.emergencyContactPhone !== undefined ? req.body.emergencyContactPhone : req.body.emergency_contact_phone;
+    const emergencyContactRelation = req.body.emergencyContactRelation !== undefined ? req.body.emergencyContactRelation : req.body.emergency_contact_relation;
+    const departmentId = req.body.departmentId !== undefined ? req.body.departmentId : req.body.department_id;
+    const designation = req.body.designation !== undefined ? req.body.designation : undefined;
+    const roleId = req.body.roleId !== undefined ? req.body.roleId : req.body.role_id;
+    const joiningDate = req.body.joiningDate !== undefined ? req.body.joiningDate : req.body.joining_date;
+    const employmentType = req.body.employmentType !== undefined ? req.body.employmentType : req.body.employment_type;
+    const employmentStatus = req.body.employmentStatus !== undefined ? req.body.employmentStatus : (req.body.employment_status !== undefined ? req.body.employment_status : req.body.status);
+    const reportingManagerId = req.body.reportingManagerId !== undefined ? req.body.reportingManagerId : req.body.reporting_manager_id;
+    const basicSalary = req.body.basicSalary !== undefined ? req.body.basicSalary : (req.body.basic_salary !== undefined ? req.body.basic_salary : req.body.salary);
+    const bankName = req.body.bankName !== undefined ? req.body.bankName : req.body.bank_name;
+    const bankAccountNumber = req.body.bankAccountNumber !== undefined ? req.body.bankAccountNumber : req.body.bank_account_number;
+    const bankIfsc = req.body.bankIfsc !== undefined ? req.body.bankIfsc : req.body.bank_ifsc;
+    const panNumber = req.body.panNumber !== undefined ? req.body.panNumber : req.body.pan_number;
+    const identityNumber = req.body.identityNumber !== undefined ? req.body.identityNumber : req.body.identity_number;
+    const taxId = req.body.taxId !== undefined ? req.body.taxId : req.body.tax_id;
+    const skills = req.body.skills !== undefined ? req.body.skills : undefined;
+    const experienceYears = req.body.experienceYears !== undefined ? req.body.experienceYears : req.body.experience_years;
+    const notes = req.body.notes !== undefined ? req.body.notes : undefined;
+    const salaryStructure = req.body.salaryStructure || req.body.salary_structure;
 
     const existing = await query<any[]>('SELECT * FROM employees WHERE id = ? AND deleted_at IS NULL', [id]);
     if (existing.length === 0) throw new AppError('Employee not found', 404);
+
+    const targetDeptId = departmentId !== undefined ? (departmentId === '' || departmentId === 'null' ? null : departmentId) : existing[0].department_id;
+    const targetManagerId = reportingManagerId !== undefined ? (reportingManagerId === '' || reportingManagerId === 'null' ? null : reportingManagerId) : existing[0].reporting_manager_id;
 
     await withTransaction(async (conn) => {
       await conn.query(
@@ -405,8 +466,8 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
         [
           firstName, lastName, phone, dateOfBirth, gender, profilePhoto, address,
           emergencyContactName, emergencyContactPhone, emergencyContactRelation,
-          departmentId || null, designation, roleId, joiningDate, employmentType, employmentStatus,
-          reportingManagerId || null, basicSalary, bankName, bankAccountNumber, bankIfsc,
+          targetDeptId, designation, roleId, joiningDate, employmentType, employmentStatus,
+          targetManagerId, basicSalary, bankName, bankAccountNumber, bankIfsc,
           panNumber, identityNumber, taxId, skills, experienceYears, notes, id
         ]
       );
@@ -424,8 +485,13 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
         );
       }
 
-      // Update Salary Structure if provided
-      if (salaryStructure) {
+      // Update Salary Structure if provided or if basic_salary changed
+      if (salaryStructure || basicSalary !== undefined) {
+        const parsedBasic = basicSalary !== undefined ? parseFloat(basicSalary) : parseFloat(existing[0].basic_salary || '0');
+        const hra = salaryStructure?.hra !== undefined ? salaryStructure.hra : parsedBasic * 0.4;
+        const pf = salaryStructure?.providentFund !== undefined ? salaryStructure.providentFund : parsedBasic * 0.12;
+        const pt = salaryStructure?.professionalTax !== undefined ? salaryStructure.professionalTax : 200.00;
+
         await conn.query(
           `INSERT INTO salary_structures (
             id, employee_id, basic_salary, hra, special_allowance, medical_allowance,
@@ -442,16 +508,16 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
             professional_tax = VALUES(professional_tax),
             income_tax_tds = VALUES(income_tax_tds)`,
           [
-            uuidv4(), id,
-            salaryStructure.basicSalary || basicSalary || 0,
-            salaryStructure.hra || 0,
-            salaryStructure.specialAllowance || 0,
-            salaryStructure.medicalAllowance || 0,
-            salaryStructure.conveyanceAllowance || 0,
-            salaryStructure.providentFund || 0,
-            salaryStructure.esi || 0,
-            salaryStructure.professionalTax || 0,
-            salaryStructure.incomeTaxTds || 0,
+            `sal-str-${uuidv4()}`, id,
+            parsedBasic,
+            hra,
+            salaryStructure?.specialAllowance || 0,
+            salaryStructure?.medicalAllowance || 0,
+            salaryStructure?.conveyanceAllowance || 0,
+            pf,
+            salaryStructure?.esi || 0,
+            pt,
+            salaryStructure?.incomeTaxTds || 0,
           ]
         );
       }

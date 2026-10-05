@@ -47,6 +47,7 @@ export const companyApi = {
 export const employeesApi = {
   getAll: (params?: any) => apiClient.get('/employees', { params }),
   list: (params?: any) => apiClient.get('/employees', { params }),
+  getStats: () => apiClient.get<{ success: boolean; data: { total: number; active: number; onLeave: number; newThisMonth: number; probation: number } }>('/employees/stats/summary'),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Employee }>(`/employees/${id}`),
   create: (data: any) => apiClient.post('/employees', data),
   update: (id: string | number, data: any) => apiClient.put(`/employees/${id}`, data),

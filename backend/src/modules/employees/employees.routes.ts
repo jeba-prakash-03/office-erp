@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   listEmployees,
+  getEmployeeStats,
   getEmployeeById,
   createEmployee,
   updateEmployee,
@@ -16,6 +17,7 @@ const router = Router();
 
 router.use(authenticate);
 
+router.get('/stats/summary', requirePermission('employees.view'), getEmployeeStats);
 router.get('/', requirePermission('employees.view'), listEmployees);
 router.get('/:id', requirePermission('employees.view'), getEmployeeById);
 router.post('/', requirePermission('employees.create'), createEmployee);
