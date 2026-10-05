@@ -89,48 +89,65 @@ export const AttendanceList: React.FC = () => {
     }
   };
 
-  const isClockedIn = todayStatus?.clock_in && !todayStatus?.clock_out;
-  const isClockedOut = !!todayStatus?.clock_out;
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const checkInTime = todayStatus?.check_in || todayStatus?.clock_in;
+  const checkOutTime = todayStatus?.check_out || todayStatus?.clock_out;
+  const isClockedIn = !!checkInTime && !checkOutTime;
+  const isClockedOut = !!checkOutTime;
 
   const columns: Column<Attendance>[] = [
     {
       header: 'Employee',
-      accessor: (a) => (
+      accessor: (a: any) => (
         <div>
           <span className="font-medium text-slate-900 dark:text-white">
-            {a.employee_name || `Employee #${a.employee_id}`}
+            {a.employee_name || (a.first_name ? `${a.first_name} ${a.last_name || ''}` : `Employee #${a.employee_id}`)}
           </span>
-          <div className="text-xs text-slate-500">{a.employee_code}</div>
+          <div className="text-xs text-slate-500">{a.employee_code || a.designation || 'Staff'}</div>
         </div>
       ),
     },
     {
       header: 'Date',
-      accessor: (a) => (
+      accessor: (a: any) => (
         <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-          {a.date ? a.date.substring(0, 10) : '—'}
+          {a.date ? String(a.date).substring(0, 10) : '—'}
         </span>
       ),
     },
     {
       header: 'Clock In',
-      accessor: (a) => (
-        <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-          {a.clock_in ? a.clock_in.substring(11, 16) || a.clock_in : '—'}
-        </span>
-      ),
+      accessor: (a: any) => {
+        const inVal = a.check_in || a.clock_in;
+        return (
+          <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
+            {inVal ? (String(inVal).length > 10 ? String(inVal).substring(11, 16) : inVal) : '—'}
+          </span>
+        );
+      },
     },
     {
       header: 'Clock Out',
-      accessor: (a) => (
-        <span className="text-xs font-mono text-blue-600 dark:text-blue-400 font-semibold">
-          {a.clock_out ? a.clock_out.substring(11, 16) || a.clock_out : '—'}
-        </span>
-      ),
+      accessor: (a: any) => {
+        const outVal = a.check_out || a.clock_out;
+        return (
+          <span className="text-xs font-mono text-blue-600 dark:text-blue-400 font-semibold">
+            {outVal ? (String(outVal).length > 10 ? String(outVal).substring(11, 16) : outVal) : '—'}
+          </span>
+        );
+      },
     },
     {
       header: 'Working Hours',
-      accessor: (a) => (
+      accessor: (a: any) => (
         <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
           {a.total_hours ? `${Number(a.total_hours).toFixed(1)} hrs` : '—'}
         </span>
@@ -138,7 +155,7 @@ export const AttendanceList: React.FC = () => {
     },
     {
       header: 'Overtime',
-      accessor: (a) => (
+      accessor: (a: any) => (
         <span className="text-xs text-slate-500">
           {Number(a.overtime_hours || 0) > 0 ? `+${Number(a.overtime_hours).toFixed(1)} hrs` : '0 hrs'}
         </span>
@@ -147,7 +164,7 @@ export const AttendanceList: React.FC = () => {
     {
       header: 'Status',
       align: 'right',
-      accessor: (a) => <StatusBadge status={a.status} />,
+      accessor: (a: any) => <StatusBadge status={a.status || 'present'} />,
     },
   ];
 
@@ -168,24 +185,25 @@ export const AttendanceList: React.FC = () => {
       />
 
       {/* Clock In / Out Banner Card */}
-      <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 text-white rounded-2xl p-6 shadow-md flex flex-wrap items-center justify-between gap-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-indigo-100 text-sm font-medium">
-            <Clock className="w-4 h-4" />
-            <span>Today's Workshift: {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadow-xl flex flex-wrap items-center justify-between gap-6">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
+            <Clock className="w-4 h-4 text-brand-400" />
+            <span>Today: {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} • <span className="font-mono text-white text-sm">{currentTime}</span></span>
           </div>
-          <h2 className="text-2xl font-bold">
+          <h2 className="text-2xl font-bold tracking-tight">
             {isClockedOut
               ? 'Workday Completed'
               : isClockedIn
               ? 'Currently Working'
               : 'Not Clocked In Yet'}
           </h2>
-          <p className="text-xs text-indigo-200">
-            {todayStatus?.clock_in
-              ? `Punched In at ${todayStatus.clock_in.substring(11, 16) || todayStatus.clock_in}`
+          <p className="text-xs text-slate-400">
+            {checkInTime
+              ? `Punched In at ${String(checkInTime).length > 10 ? String(checkInTime).substring(11, 16) : checkInTime}`
               : 'Record your check-in timestamp to start your workday.'}
-            {todayStatus?.clock_out && ` • Punched Out at ${todayStatus.clock_out.substring(11, 16) || todayStatus.clock_out}`}
+            {checkOutTime && ` • Punched Out at ${String(checkOutTime).length > 10 ? String(checkOutTime).substring(11, 16) : checkOutTime}`}
+            {todayStatus?.total_hours && ` • Total: ${todayStatus.total_hours} hrs`}
           </p>
         </div>
 

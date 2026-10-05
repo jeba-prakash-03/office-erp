@@ -31,14 +31,29 @@ export async function createLeaveType(req: Request, res: Response, next: NextFun
   }
 }
 
+async function resolveEmployeeId(req: Request): Promise<string | null> {
+  if (req.user?.employeeId) return req.user.employeeId;
+  const bodyOrQuery = req.body?.employee_id || req.body?.employeeId || req.query?.employee_id || req.query?.employeeId;
+  if (bodyOrQuery) return String(bodyOrQuery);
+  if (req.user?.id) {
+    const rows = await query<any[]>('SELECT id FROM employees WHERE user_id = ? AND deleted_at IS NULL LIMIT 1', [req.user.id]);
+    if (rows.length > 0) return rows[0].id;
+  }
+  return null;
+}
+
 export async function getMyLeaveBalances(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.user?.employeeId;
-    if (!employeeId) throw new AppError('Employee profile not found', 400);
-
+    const employeeId = await resolveEmployeeId(req);
     const year = parseInt(req.query.year as string || `${new Date().getFullYear()}`, 10);
 
-    const balances = await query<any[]>(
+    if (!employeeId) {
+      // If super admin has no employee profile, return general balance summaries or empty list
+      return res.json({ success: true, data: [] });
+    }
+
+    // Check if balances exist for this year, if not auto-initialize from leave_types
+    let balances = await query<any[]>(
       `SELECT lb.*, lt.name as leave_type_name, lt.is_paid, lt.requires_attachment, lt.description
        FROM leave_balances lb
        JOIN leave_types lt ON lb.leave_type_id = lt.id
@@ -46,6 +61,27 @@ export async function getMyLeaveBalances(req: Request, res: Response, next: Next
        ORDER BY lt.name ASC`,
       [employeeId, year]
     );
+
+    if (balances.length === 0) {
+      const types = await query<any[]>('SELECT * FROM leave_types');
+      for (const lt of types) {
+        const balId = `bal-${uuidv4()}`;
+        await query(
+          `INSERT IGNORE INTO leave_balances (id, employee_id, leave_type_id, year, total_days, used_days, pending_days, remaining_days, created_at)
+           VALUES (?, ?, ?, ?, ?, 0, 0, ?, NOW())`,
+          [balId, employeeId, lt.id, year, lt.days_allowed_per_year, lt.days_allowed_per_year]
+        );
+      }
+
+      balances = await query<any[]>(
+        `SELECT lb.*, lt.name as leave_type_name, lt.is_paid, lt.requires_attachment, lt.description
+         FROM leave_balances lb
+         JOIN leave_types lt ON lb.leave_type_id = lt.id
+         WHERE lb.employee_id = ? AND lb.year = ?
+         ORDER BY lt.name ASC`,
+        [employeeId, year]
+      );
+    }
 
     res.json({ success: true, data: balances });
   } catch (error) {
@@ -55,15 +91,21 @@ export async function getMyLeaveBalances(req: Request, res: Response, next: Next
 
 export async function applyLeave(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.user?.employeeId;
-    if (!employeeId) throw new AppError('Employee profile not found', 400);
+    const employeeId = await resolveEmployeeId(req);
+    if (!employeeId) throw new AppError('Employee profile not found. Please link an employee record.', 400);
 
-    const { leaveTypeId, startDate, endDate, totalDays, reason, attachmentUrl } = req.body;
+    const leaveTypeId = req.body.leaveTypeId || req.body.leave_type_id;
+    const startDate = req.body.startDate || req.body.start_date;
+    const endDate = req.body.endDate || req.body.end_date;
+    const totalDays = req.body.totalDays || req.body.total_days;
+    const reason = req.body.reason;
+    const attachmentUrl = req.body.attachmentUrl || req.body.attachment_url;
+
     if (!leaveTypeId || !startDate || !endDate || !totalDays || !reason) {
       throw new AppError('Leave type, start date, end date, total days, and reason are required', 400);
     }
 
-    const days = parseFloat(totalDays);
+    const days = parseFloat(String(totalDays));
     const year = new Date(startDate).getFullYear();
 
     // Check balance

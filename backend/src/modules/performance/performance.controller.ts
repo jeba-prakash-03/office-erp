@@ -6,7 +6,7 @@ import { logAudit } from '../../utils/auditLogger';
 
 export async function listReviews(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.query.employeeId as string || '';
+    const employeeId = req.query.employeeId as string || req.query.employee_id as string || '';
     let whereClause = 'WHERE 1=1';
     const params: any[] = [];
 
@@ -24,10 +24,10 @@ export async function listReviews(req: Request, res: Response, next: NextFunctio
               CONCAT(e.first_name, ' ', e.last_name) as employee_name,
               e.designation,
               d.name as department_name,
-              CONCAT(r.first_name, ' ', r.last_name) as reviewer_name
+              COALESCE(CONCAT(r.first_name, ' ', r.last_name), 'Executive Management') as reviewer_name
        FROM performance_reviews pr
        JOIN employees e ON pr.employee_id = e.id
-       JOIN employees r ON pr.reviewer_id = r.id
+       LEFT JOIN employees r ON pr.reviewer_id = r.id
        LEFT JOIN departments d ON e.department_id = d.id
        ${whereClause}
        ORDER BY pr.created_at DESC`,
@@ -42,29 +42,42 @@ export async function listReviews(req: Request, res: Response, next: NextFunctio
 
 export async function createReview(req: Request, res: Response, next: NextFunction) {
   try {
-    const reviewerId = req.user?.employeeId;
-    if (!reviewerId) throw new AppError('Only active employees / managers can submit reviews', 400);
-
-    const {
-      employeeId, cycle, period,
-      taskCompletionRating, qualityRating, productivityRating,
-      attendanceRating, communicationRating, teamworkRating, technicalRating,
-      managerFeedback, strengths, areasForImprovement, goals
-    } = req.body;
-
-    if (!employeeId || !cycle || !period) {
-      throw new AppError('Employee, review cycle, and period are required', 400);
+    let reviewerId = req.user?.employeeId || null;
+    if (!reviewerId && req.user?.id) {
+      const empRows = await query<any[]>('SELECT id FROM employees WHERE user_id = ? AND deleted_at IS NULL LIMIT 1', [req.user.id]);
+      if (empRows.length > 0) reviewerId = empRows[0].id;
     }
 
-    const tScore = parseFloat(taskCompletionRating || '0');
-    const qScore = parseFloat(qualityRating || '0');
-    const pScore = parseFloat(productivityRating || '0');
-    const aScore = parseFloat(attendanceRating || '0');
-    const cScore = parseFloat(communicationRating || '0');
-    const tmScore = parseFloat(teamworkRating || '0');
-    const techScore = parseFloat(technicalRating || '0');
+    const employeeId = req.body.employeeId || req.body.employee_id;
+    const period = req.body.period || req.body.review_period || req.body.reviewPeriod || 'Q1 2026';
+    let cycle = req.body.cycle || 'quarterly';
+    if (!req.body.cycle) {
+      const pLow = period.toLowerCase();
+      if (pLow.includes('month')) cycle = 'monthly';
+      else if (pLow.includes('half') || pLow.includes('h1') || pLow.includes('h2')) cycle = 'half_yearly';
+      else if (pLow.includes('annual') || pLow.includes('year')) cycle = 'yearly';
+      else cycle = 'quarterly';
+    }
 
-    const overallScore = Math.round(((tScore + qScore + pScore + aScore + cScore + tmScore + techScore) / 7) * 10) / 10;
+    if (!employeeId) {
+      throw new AppError('Employee selection is required', 400);
+    }
+
+    const tScore = parseFloat(req.body.taskCompletionRating || req.body.task_completion_rating || req.body.task_completion || req.body.technical_skills || '4.0');
+    const qScore = parseFloat(req.body.qualityRating || req.body.quality_rating || req.body.productivity || '4.0');
+    const pScore = parseFloat(req.body.productivityRating || req.body.productivity_rating || req.body.productivity || '4.0');
+    const aScore = parseFloat(req.body.attendanceRating || req.body.attendance_rating || req.body.punctuality || '4.0');
+    const cScore = parseFloat(req.body.communicationRating || req.body.communication_rating || req.body.communication || '4.0');
+    const tmScore = parseFloat(req.body.teamworkRating || req.body.teamwork_rating || req.body.teamwork || '4.0');
+    const techScore = parseFloat(req.body.technicalRating || req.body.technical_rating || req.body.technical_skills || '4.0');
+
+    const calculatedAvg = Math.round(((tScore + qScore + pScore + aScore + cScore + tmScore + techScore) / 7) * 10) / 10;
+    const overallScore = req.body.overall_rating || req.body.overallScore || req.body.overall_score || calculatedAvg;
+
+    const managerFeedback = req.body.managerFeedback || req.body.manager_feedback || req.body.feedback || null;
+    const strengths = req.body.strengths || null;
+    const areasForImprovement = req.body.areasForImprovement || req.body.areas_for_improvement || null;
+    const goals = req.body.goals || null;
 
     const reviewId = `perf-${uuidv4()}`;
     await query(
@@ -77,7 +90,7 @@ export async function createReview(req: Request, res: Response, next: NextFuncti
       [
         reviewId, employeeId, reviewerId, cycle, period,
         tScore, qScore, pScore, aScore, cScore, tmScore, techScore,
-        overallScore, managerFeedback || null, strengths || null, areasForImprovement || null, goals || null
+        overallScore, managerFeedback, strengths, areasForImprovement, goals
       ]
     );
 

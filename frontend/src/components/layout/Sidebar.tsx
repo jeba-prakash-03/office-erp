@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const navGroups = [
     {
-      title: 'Main',
+      title: 'MAIN',
       items: [
         { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, show: true },
         { name: 'Client Portal', path: '/portal/client', icon: Building, show: isClient },
@@ -50,20 +50,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ],
     },
     {
-      title: 'Human Resources',
-      show: !isClient && (hasPermission('employees.view') || hasPermission('attendance.view') || hasPermission('leave.view') || hasPermission('payroll.view')),
+      title: 'PEOPLE',
+      show: !isClient && (hasPermission('employees.view') || hasPermission('attendance.view') || hasPermission('leave.view') || hasPermission('performance.view')),
       items: [
         { name: 'Employees', path: '/employees', icon: Users, show: hasPermission('employees.view') },
         { name: 'Departments', path: '/departments', icon: Building2, show: hasPermission('departments.view') },
         { name: 'Attendance', path: '/attendance', icon: Clock, show: hasPermission('attendance.view') },
         { name: 'Leave Management', path: '/leave', icon: CalendarCheck, show: hasPermission('leave.view') },
-        { name: 'Payroll / Salary', path: '/payroll', icon: CreditCard, show: hasPermission('payroll.view') },
-        { name: 'Loans & Advances', path: '/loans', icon: DollarSign, show: true },
         { name: 'Performance', path: '/performance', icon: TrendingUp, show: hasPermission('performance.view') },
       ],
     },
     {
-      title: 'Work & Projects',
+      title: 'WORK',
       show: !isClient,
       items: [
         { name: 'Projects', path: '/projects', icon: Briefcase, show: hasPermission('projects.view') },
@@ -72,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ],
     },
     {
-      title: 'Sales & CRM',
+      title: 'CRM',
       show: !isClient && (hasPermission('clients.view') || hasPermission('leads.view')),
       items: [
         { name: 'Clients', path: '/clients', icon: Building, show: hasPermission('clients.view') },
@@ -80,32 +78,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ],
     },
     {
-      title: 'Finance & Billing',
-      show: !isClient && (hasPermission('finance.view') || hasPermission('invoices.manage') || hasPermission('payments.manage')),
+      title: 'FINANCE',
+      show: !isClient && (hasPermission('finance.view') || hasPermission('invoices.manage') || hasPermission('payments.manage') || hasPermission('payroll.view')),
       items: [
         { name: 'Company Finance', path: '/finance', icon: DollarSign, show: hasPermission('finance.view') },
         { name: 'Invoices', path: '/invoices', icon: FileText, show: hasPermission('invoices.manage') },
         { name: 'Payments', path: '/payments', icon: Receipt, show: hasPermission('payments.manage') },
+        { name: 'Payroll & Salary', path: '/payroll', icon: CreditCard, show: hasPermission('payroll.view') },
+        { name: 'Loans & Advances', path: '/loans', icon: DollarSign, show: true },
       ],
     },
     {
-      title: 'Operations',
+      title: 'OPERATIONS',
       items: [
         { name: 'Assets Inventory', path: '/assets', icon: Package, show: !isClient && hasPermission('assets.view') },
         { name: 'Document Vault', path: '/documents', icon: FolderOpen, show: true },
-        { name: 'Announcements', path: '/announcements', icon: Megaphone, show: true },
         { name: 'Meetings', path: '/meetings', icon: Video, show: true },
+        { name: 'Announcements', path: '/announcements', icon: Megaphone, show: true },
         { name: 'Calendar', path: '/calendar', icon: Calendar, show: true },
       ],
     },
     {
-      title: 'Analytics & Administration',
-      show: !isClient && (hasPermission('reports.view') || hasPermission('settings.manage') || hasPermission('roles.manage')),
+      title: 'REPORTING',
+      show: !isClient && hasPermission('reports.view'),
       items: [
-        { name: 'Reports & Export', path: '/reports', icon: BarChart3, show: hasPermission('reports.view') },
-        { name: 'Audit Logs', path: '/audit-logs', icon: ShieldCheck, show: hasPermission('audit_logs.view') },
-        { name: 'Roles & Access', path: '/roles', icon: Users, show: hasPermission('roles.manage') },
+        { name: 'Reports & Analytics', path: '/reports', icon: BarChart3, show: hasPermission('reports.view') },
+      ],
+    },
+    {
+      title: 'ADMINISTRATION',
+      show: !isClient && (hasPermission('settings.manage') || hasPermission('roles.manage') || hasPermission('users.view') || hasPermission('audit_logs.view')),
+      items: [
         { name: 'Users Roster', path: '/users', icon: UserCheck, show: hasPermission('users.view') },
+        { name: 'Roles & Permissions', path: '/roles', icon: Users, show: hasPermission('roles.manage') },
+        { name: 'Audit Logs', path: '/audit-logs', icon: ShieldCheck, show: hasPermission('audit_logs.view') },
         { name: 'Company Settings', path: '/settings', icon: Sliders, show: hasPermission('settings.manage') },
       ],
     },

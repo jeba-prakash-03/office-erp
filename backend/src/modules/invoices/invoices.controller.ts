@@ -120,10 +120,17 @@ export async function getInvoiceById(req: Request, res: Response, next: NextFunc
 
 export async function createInvoice(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      invoiceNumber, clientId, projectId, invoiceDate, dueDate,
-      discountType, discountValue, taxRate, notes, terms, items
-    } = req.body;
+    const invoiceNumber = req.body.invoiceNumber || req.body.invoice_number;
+    const clientId = req.body.clientId || req.body.client_id;
+    const projectId = req.body.projectId || req.body.project_id || null;
+    const invoiceDate = req.body.invoiceDate || req.body.invoice_date || new Date().toISOString().split('T')[0];
+    const dueDate = req.body.dueDate || req.body.due_date;
+    const discountType = req.body.discountType || req.body.discount_type || 'percentage';
+    const discountValue = req.body.discountValue || req.body.discount_value || 0;
+    const taxRate = req.body.taxRate || req.body.tax_rate || 0;
+    const notes = req.body.notes || null;
+    const terms = req.body.terms || null;
+    const items = req.body.items || [];
 
     if (!clientId || !invoiceDate || !dueDate || !Array.isArray(items) || items.length === 0) {
       throw new AppError('Client, invoice date, due date, and at least one item are required', 400);
@@ -140,13 +147,13 @@ export async function createInvoice(req: Request, res: Response, next: NextFunct
 
     for (let i = 0; i < items.length; i++) {
       const itm = items[i];
-      const qty = parseFloat(itm.quantity || '1');
-      const unit = parseFloat(itm.unitPrice || '0');
+      const qty = parseFloat(itm.quantity || itm.qty || '1');
+      const unit = parseFloat(itm.unitPrice || itm.unit_price || itm.rate || '0');
       const lineTotal = Math.round(qty * unit * 100) / 100;
       subtotal += lineTotal;
 
       processedItems.push({
-        id: uuidv4(),
+        id: `inv-item-${uuidv4()}`,
         description: itm.description || 'Item description',
         quantity: qty,
         unitPrice: unit,
@@ -155,7 +162,7 @@ export async function createInvoice(req: Request, res: Response, next: NextFunct
       });
     }
 
-    const discVal = parseFloat(discountValue || '0');
+    const discVal = parseFloat(String(discountValue) || '0');
     let discountAmount = 0;
     if (discountType === 'fixed') {
       discountAmount = discVal;

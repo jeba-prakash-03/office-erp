@@ -4,11 +4,22 @@ import { query, withTransaction } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../utils/auditLogger';
 
+async function resolveEmployeeId(req: Request): Promise<string | null> {
+  if (req.user?.employeeId) return req.user.employeeId;
+  const bodyOrQuery = req.body?.employee_id || req.body?.employeeId || req.query?.employee_id || req.query?.employeeId;
+  if (bodyOrQuery) return String(bodyOrQuery);
+  if (req.user?.id) {
+    const rows = await query<any[]>('SELECT id FROM employees WHERE user_id = ? AND deleted_at IS NULL LIMIT 1', [req.user.id]);
+    if (rows.length > 0) return rows[0].id;
+  }
+  return null;
+}
+
 export async function checkIn(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.user?.employeeId;
+    const employeeId = await resolveEmployeeId(req);
     if (!employeeId) {
-      throw new AppError('No employee profile associated with your user account.', 400);
+      throw new AppError('No employee profile associated with your user account. Please ensure an employee record is linked.', 400);
     }
 
     const today = new Date().toISOString().split('T')[0];
@@ -29,7 +40,7 @@ export async function checkIn(req: Request, res: Response, next: NextFunction) {
     const isLate = now.getHours() > 9 || (now.getHours() === 9 && now.getMinutes() > 30);
     const status = isLate ? 'late' : 'present';
 
-    const attendanceId = existing.length > 0 ? existing[0].id : uuidv4();
+    const attendanceId = existing.length > 0 ? existing[0].id : `att-${uuidv4()}`;
 
     if (existing.length > 0) {
       await query(
@@ -58,7 +69,7 @@ export async function checkIn(req: Request, res: Response, next: NextFunction) {
     res.json({
       success: true,
       message: `Checked in successfully at ${now.toLocaleTimeString()} (${status})`,
-      data: { checkIn: now.toISOString(), status },
+      data: { id: attendanceId, checkIn: now.toISOString(), status },
     });
   } catch (error) {
     next(error);
@@ -67,7 +78,7 @@ export async function checkIn(req: Request, res: Response, next: NextFunction) {
 
 export async function checkOut(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.user?.employeeId;
+    const employeeId = await resolveEmployeeId(req);
     if (!employeeId) {
       throw new AppError('No employee profile associated with your user account.', 400);
     }
@@ -128,7 +139,7 @@ export async function checkOut(req: Request, res: Response, next: NextFunction) 
 
 export async function getTodayStatus(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = req.user?.employeeId;
+    const employeeId = await resolveEmployeeId(req);
     if (!employeeId) {
       return res.json({ success: true, data: null });
     }

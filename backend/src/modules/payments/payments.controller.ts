@@ -65,9 +65,14 @@ export async function listPayments(req: Request, res: Response, next: NextFuncti
 
 export async function recordPayment(req: Request, res: Response, next: NextFunction) {
   try {
-    const { invoiceId, amount, paymentDate, paymentMethod, transactionReference, notes } = req.body;
+    const invoiceId = req.body.invoiceId || req.body.invoice_id;
+    const amount = req.body.amount;
+    const paymentDate = req.body.paymentDate || req.body.payment_date || new Date().toISOString().split('T')[0];
+    const paymentMethod = req.body.paymentMethod || req.body.payment_method || 'Bank Transfer';
+    const transactionReference = req.body.transactionReference || req.body.transaction_reference || null;
+    const notes = req.body.notes || null;
 
-    if (!invoiceId || !amount || !paymentDate || !paymentMethod) {
+    if (!invoiceId || amount === undefined || amount === null || !paymentDate || !paymentMethod) {
       throw new AppError('Invoice, amount, payment date, and payment method are required', 400);
     }
 

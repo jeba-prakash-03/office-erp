@@ -120,19 +120,33 @@ export async function getClientById(req: Request, res: Response, next: NextFunct
 
 export async function createClient(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      clientCode, companyName, contactPerson, email, phone, website,
-      address, industry, gstNumber, taxNumber, status, assignedSalesRepId, notes,
-      contacts
-    } = req.body;
+    const companyName = req.body.companyName || req.body.company_name;
+    const contactPerson = req.body.contactPerson || req.body.contact_person || companyName || 'Primary Contact';
+    const email = req.body.email;
+    const clientCode = req.body.clientCode || req.body.client_code || `CLI-${Math.floor(1000 + Math.random() * 9000)}`;
+    const phone = req.body.phone;
+    const website = req.body.website;
+    const address = req.body.address;
+    const industry = req.body.industry;
+    const gstNumber = req.body.gstNumber || req.body.gst_number;
+    const taxNumber = req.body.taxNumber || req.body.tax_number;
+    const status = req.body.status || 'active';
+    const assignedSalesRepId = req.body.assignedSalesRepId || req.body.assigned_sales_rep_id || null;
+    const notes = req.body.notes;
+    const contacts = req.body.contacts;
 
-    if (!clientCode || !companyName || !contactPerson || !email) {
-      throw new AppError('Client Code, Company Name, Contact Person, and Email are required', 400);
+    if (!companyName || !email) {
+      throw new AppError('Company Name and Email are required', 400);
     }
 
     const existing = await query<any[]>('SELECT id FROM clients WHERE client_code = ?', [clientCode.trim()]);
-    if (existing.length > 0) throw new AppError('Client with this code already exists', 409);
+    if (existing.length > 0) {
+      // If code was auto-generated and collided, generate with uuid suffix
+      const altCode = `CLI-${uuidv4().substring(0, 6).toUpperCase()}`;
+      req.body.clientCode = altCode;
+    }
 
+    const finalClientCode = req.body.clientCode || clientCode;
     const clientId = `client-${uuidv4()}`;
 
     await withTransaction(async (conn) => {
@@ -142,7 +156,7 @@ export async function createClient(req: Request, res: Response, next: NextFuncti
           address, industry, gst_number, tax_number, status, assigned_sales_rep_id, notes, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          clientId, clientCode.trim(), companyName.trim(), contactPerson.trim(), email.trim(),
+          clientId, finalClientCode.trim(), companyName.trim(), contactPerson.trim(), email.trim(),
           phone || null, website || null, address || null, industry || null,
           gstNumber || null, taxNumber || null, status || 'active', assignedSalesRepId || null, notes || null
         ]
@@ -152,7 +166,7 @@ export async function createClient(req: Request, res: Response, next: NextFuncti
       await conn.query(
         `INSERT INTO client_contacts (id, client_id, name, email, phone, is_primary, created_at)
          VALUES (?, ?, ?, ?, ?, 1, NOW())`,
-        [uuidv4(), clientId, contactPerson.trim(), email.trim(), phone || null]
+        [`cont-${uuidv4()}`, clientId, contactPerson.trim(), email.trim(), phone || null]
       );
 
       // Additional contacts if any
