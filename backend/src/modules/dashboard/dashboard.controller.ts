@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { query } from '../../config/db';
+import { sendSuccess } from '../../utils/response';
 
 export async function getDashboardStats(req: Request, res: Response, next: NextFunction) {
   try {
@@ -8,284 +9,268 @@ export async function getDashboardStats(req: Request, res: Response, next: NextF
     const currentMonth = new Date().getMonth() + 1;
     const currentYear = new Date().getFullYear();
 
-    // 1. If Client Role
-    if (roleName === 'client' && req.user?.clientId) {
-      const clientId = req.user.clientId;
+    // -------------------------------------------------------------------------
+    // 1. EMPLOYEE DASHBOARD
+    // -------------------------------------------------------------------------
+    if (roleName === 'employee') {
+      let employeeId = req.user?.employeeId;
+      if (!employeeId && req.user?.id) {
+        const empRows = await query<any[]>('SELECT id FROM employees WHERE user_id = ? AND deleted_at IS NULL LIMIT 1', [req.user.id]);
+        if (empRows.length > 0) employeeId = empRows[0].id;
+      }
 
-      const projectRows = await query<any[]>(
-        `SELECT COUNT(*) as total_projects,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_projects,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_projects
-         FROM projects WHERE client_id = ?`,
-        [clientId]
-      );
+      if (!employeeId) {
+        return sendSuccess(res, {
+          role: 'employee',
+          hasProfile: false,
+          message: 'No employee profile linked to this account.',
+        });
+      }
 
-      const invoiceRows = await query<any[]>(
-        `SELECT COUNT(*) as total_invoices,
-                COALESCE(SUM(grand_total), 0) as total_amount,
-                COALESCE(SUM(paid_amount), 0) as total_paid,
-                COALESCE(SUM(remaining_balance), 0) as total_due
-         FROM invoices WHERE client_id = ?`,
-        [clientId]
-      );
+      // My Attendance this month
+      const startOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+      const endOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-31`;
 
-      const myProjects = await query<any[]>(
-        `SELECT p.*, CONCAT(pm.first_name, ' ', pm.last_name) as manager_name
-         FROM projects p
-         LEFT JOIN employees pm ON p.project_manager_id = pm.id
-         WHERE p.client_id = ?
-         ORDER BY p.created_at DESC LIMIT 5`,
-        [clientId]
-      );
-
-      const myInvoices = await query<any[]>(
-        'SELECT * FROM invoices WHERE client_id = ? ORDER BY invoice_date DESC LIMIT 5',
-        [clientId]
-      );
-
-      return res.json({
-        success: true,
-        role: 'client',
-        stats: {
-          projects: projectRows[0] || {},
-          invoices: invoiceRows[0] || {},
-        },
-        recentProjects: myProjects,
-        recentInvoices: myInvoices,
-      });
-    }
-
-    // 2. If Employee Role (Self Service Portal)
-    if (roleName === 'employee' && req.user?.employeeId) {
-      const employeeId = req.user.employeeId;
-
-      // Today's attendance
       const attRows = await query<any[]>(
-        'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
-        [employeeId, today]
+        `SELECT
+           SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
+           SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+           SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave_days,
+           SUM(CASE WHEN status = 'half_day' THEN 1 ELSE 0 END) as half_days
+         FROM attendance
+         WHERE employee_id = ? AND date BETWEEN ? AND ?`,
+        [employeeId, startOfMonth, endOfMonth]
       );
 
-      // Tasks
-      const taskRows = await query<any[]>(
-        `SELECT COUNT(*) as total_tasks,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
-                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_tasks,
-                SUM(CASE WHEN status != 'completed' AND due_date < CURDATE() THEN 1 ELSE 0 END) as overdue_tasks
+      // My Leave Balances & Requests
+      const leaveBalanceRows = await query<any[]>(
+        `SELECT SUM(total_days) as total_allowed, SUM(used_days) as used_days, SUM(remaining_days) as remaining_days, SUM(pending_days) as pending_days
+         FROM leave_balances WHERE employee_id = ? AND year = ?`,
+        [employeeId, currentYear]
+      );
+
+      const pendingLeaveRequests = await query<any[]>(
+        `SELECT lr.*, lt.name as leave_type_name
+         FROM leave_requests lr
+         JOIN leave_types lt ON lr.leave_type_id = lt.id
+         WHERE lr.employee_id = ? AND lr.status = 'pending'
+         ORDER BY lr.created_at DESC LIMIT 5`,
+        [employeeId]
+      );
+
+      // My Tasks
+      const taskStats = await query<any[]>(
+        `SELECT
+           COUNT(*) as total_tasks,
+           SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo_tasks,
+           SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_tasks,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks
          FROM tasks WHERE assigned_employee_id = ?`,
         [employeeId]
       );
 
-      // Leave Balances
-      const leaveBalances = await query<any[]>(
-        `SELECT lb.*, lt.name as leave_type_name
-         FROM leave_balances lb
-         JOIN leave_types lt ON lb.leave_type_id = lt.id
-         WHERE lb.employee_id = ? AND lb.year = ?`,
-        [employeeId, currentYear]
-      );
-
-      // Recent assigned tasks
-      const myTasks = await query<any[]>(
+      const recentTasks = await query<any[]>(
         `SELECT t.*, p.name as project_name
          FROM tasks t
-         JOIN projects p ON t.project_id = p.id
-         WHERE t.assigned_employee_id = ?
-         ORDER BY t.due_date ASC, t.created_at DESC
-         LIMIT 6`,
+         LEFT JOIN projects p ON t.project_id = p.id
+         WHERE t.assigned_employee_id = ? AND t.status != 'completed'
+         ORDER BY t.priority DESC, t.due_date ASC LIMIT 5`,
         [employeeId]
       );
 
-      // Active Announcements
-      const announcements = await query<any[]>(
-        'SELECT * FROM announcements WHERE expiry_date IS NULL OR expiry_date >= CURDATE() ORDER BY publish_date DESC LIMIT 5'
+      // My Assigned Projects
+      const myProjects = await query<any[]>(
+        `SELECT p.* FROM projects p
+         JOIN project_members pm ON p.id = pm.project_id
+         WHERE pm.employee_id = ? AND p.status = 'active'
+         ORDER BY p.start_date DESC LIMIT 5`,
+        [employeeId]
       );
 
-      return res.json({
-        success: true,
+      // My Latest Payslip
+      const latestPayslip = await query<any[]>(
+        `SELECT ps.*, pr.net_salary, pr.gross_salary, pr.payment_status
+         FROM payslips ps
+         JOIN payroll_records pr ON ps.payroll_record_id = pr.id
+         WHERE ps.employee_id = ?
+         ORDER BY ps.year DESC, ps.month DESC LIMIT 1`,
+        [employeeId]
+      );
+
+      // My Latest Performance Review
+      const latestReview = await query<any[]>(
+        `SELECT pr.*, pc.title as cycle_title
+         FROM performance_reviews pr
+         JOIN performance_cycles pc ON pr.cycle_id = pc.id
+         WHERE pr.employee_id = ?
+         ORDER BY pr.created_at DESC LIMIT 1`,
+        [employeeId]
+      );
+
+      // My Unread Notifications
+      const notifications = await query<any[]>(
+        `SELECT * FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 5`,
+        [req.user!.id]
+      );
+
+      return sendSuccess(res, {
         role: 'employee',
-        stats: {
-          todayAttendance: attRows[0] || null,
-          tasks: taskRows[0] || {},
-          leaveBalances,
+        attendance: attRows[0] || { present_days: 0, absent_days: 0, leave_days: 0, half_days: 0 },
+        leave: {
+          balances: leaveBalanceRows[0] || { total_allowed: 0, used_days: 0, remaining_days: 0 },
+          pendingRequests: pendingLeaveRequests,
         },
-        myTasks,
-        announcements,
+        tasks: {
+          stats: taskStats[0] || { total_tasks: 0, todo_tasks: 0, in_progress_tasks: 0, completed_tasks: 0 },
+          recent: recentTasks,
+        },
+        projects: myProjects,
+        payroll: latestPayslip[0] || null,
+        performance: latestReview[0] || null,
+        notifications,
       });
     }
 
-    // 3. Admin / HR / Finance / Project Manager Comprehensive Dashboard
-    // Employee counts
-    const empStats = await query<any[]>(
-      `SELECT COUNT(*) as total_employees,
-              SUM(CASE WHEN employment_status = 'active' THEN 1 ELSE 0 END) as active_employees,
-              SUM(CASE WHEN employment_status = 'probation' THEN 1 ELSE 0 END) as probation_employees
+    // -------------------------------------------------------------------------
+    // 2. ADMIN & SUPER ADMIN DASHBOARD
+    // -------------------------------------------------------------------------
+
+    // Employees counts
+    const empCountRows = await query<any[]>(
+      `SELECT
+         COUNT(*) as total_employees,
+         SUM(CASE WHEN employment_status = 'active' THEN 1 ELSE 0 END) as active_employees
        FROM employees WHERE deleted_at IS NULL`
     );
 
-    // Client & Project counts
-    const clientCount = await query<any[]>('SELECT COUNT(*) as total_clients FROM clients WHERE status = "active"');
-    const projectStats = await query<any[]>(
-      `SELECT COUNT(*) as total_projects,
-              SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_projects,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_projects,
-              SUM(CASE WHEN status = 'planning' THEN 1 ELSE 0 END) as planning_projects
-       FROM projects`
-    );
-
-    // Task counts
-    const taskStats = await query<any[]>(
-      `SELECT COUNT(*) as total_tasks,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
-              SUM(CASE WHEN status != 'completed' THEN 1 ELSE 0 END) as pending_tasks,
-              SUM(CASE WHEN status != 'completed' AND due_date < CURDATE() THEN 1 ELSE 0 END) as overdue_tasks
-       FROM tasks`
-    );
-
-    // Today's attendance summary
-    const attendanceStats = await query<any[]>(
-      `SELECT COUNT(*) as marked_count,
-              SUM(CASE WHEN status IN ('present', 'late', 'half_day') THEN 1 ELSE 0 END) as present_today,
-              SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_today,
-              SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as on_leave_today
+    // Attendance Today
+    const todayAttRows = await query<any[]>(
+      `SELECT
+         SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_today,
+         SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_today,
+         SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave_today
        FROM attendance WHERE date = ?`,
       [today]
     );
 
-    const activeTotal = empStats[0]?.active_employees || 0;
-    const presentToday = attendanceStats[0]?.present_today || 0;
-    const onLeaveToday = attendanceStats[0]?.on_leave_today || 0;
-    const absentToday = Math.max(0, activeTotal - presentToday - onLeaveToday);
+    // Pending Leaves
+    const pendingLeavesCount = await query<any[]>(
+      `SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending'`
+    );
 
-    // Financial Monthly Metrics
+    // Projects & Tasks
+    const projectStats = await query<any[]>(
+      `SELECT
+         COUNT(*) as total_projects,
+         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_projects
+       FROM projects`
+    );
+
+    const taskStats = await query<any[]>(
+      `SELECT
+         COUNT(*) as total_tasks,
+         SUM(CASE WHEN status IN ('todo', 'in_progress', 'review') THEN 1 ELSE 0 END) as open_tasks
+       FROM tasks`
+    );
+
+    // Finance: Monthly Income, Expenses, Outstanding Invoices
+    const startOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+    const endOfMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}-31`;
+
     const incomeRows = await query<any[]>(
-      'SELECT COALESCE(SUM(amount), 0) as monthly_income FROM incomes WHERE MONTH(date) = ? AND YEAR(date) = ?',
-      [currentMonth, currentYear]
+      `SELECT COALESCE(SUM(amount), 0) as monthly_income FROM income WHERE date BETWEEN ? AND ?`,
+      [startOfMonth, endOfMonth]
     );
+
     const expenseRows = await query<any[]>(
-      'SELECT COALESCE(SUM(amount), 0) as monthly_expenses FROM expenses WHERE MONTH(date) = ? AND YEAR(date) = ? AND status = "approved"',
-      [currentMonth, currentYear]
-    );
-    const payrollRows = await query<any[]>(
-      'SELECT COALESCE(SUM(total_net), 0) as monthly_payroll FROM payroll WHERE month = ? AND year = ? AND status IN ("approved", "paid", "locked")',
-      [currentMonth, currentYear]
+      `SELECT COALESCE(SUM(amount), 0) as monthly_expenses FROM expenses WHERE date BETWEEN ? AND ?`,
+      [startOfMonth, endOfMonth]
     );
 
-    const monthlyIncome = parseFloat(incomeRows[0]?.monthly_income || '0');
-    const monthlyExpenses = parseFloat(expenseRows[0]?.monthly_expenses || '0');
-    const monthlyPayroll = parseFloat(payrollRows[0]?.monthly_payroll || '0');
-    const netProfit = monthlyIncome - (monthlyExpenses + monthlyPayroll);
-
-    // Invoices summary
-    const invoiceSummary = await query<any[]>(
-      `SELECT COALESCE(SUM(remaining_balance), 0) as outstanding_receivables,
-              SUM(CASE WHEN status = 'overdue' THEN 1 ELSE 0 END) as overdue_count
+    const invoiceStats = await query<any[]>(
+      `SELECT
+         COUNT(*) as outstanding_count,
+         COALESCE(SUM(remaining_balance), 0) as outstanding_amount
        FROM invoices WHERE status IN ('sent', 'partially_paid', 'overdue')`
     );
 
-    // Charts: Project Status breakdown
-    const projectStatusChart = await query<any[]>(
-      'SELECT status, COUNT(*) as count FROM projects GROUP BY status'
+    // Monthly Payroll Run Status
+    const payrollRun = await query<any[]>(
+      `SELECT status, total_net, total_employees FROM payroll_runs WHERE month = ? AND year = ?`,
+      [currentMonth, currentYear]
     );
 
-    // Charts: Task Status breakdown
-    const taskStatusChart = await query<any[]>(
-      'SELECT status, COUNT(*) as count FROM tasks GROUP BY status'
+    // Recent Activity / Audit Log
+    const recentActivity = await query<any[]>(
+      `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 6`
     );
 
-    // Charts: Expense Categories
-    const expenseCategoryChart = await query<any[]>(
-      `SELECT ec.name, COALESCE(SUM(exp.amount), 0) as amount
-       FROM expense_categories ec
-       LEFT JOIN expenses exp ON exp.category_id = ec.id AND YEAR(exp.date) = ? AND exp.status = 'approved'
-       GROUP BY ec.id
-       HAVING amount > 0
-       ORDER BY amount DESC LIMIT 6`,
-      [currentYear]
+    // Department Breakdown
+    const deptBreakdown = await query<any[]>(
+      `SELECT d.name, COUNT(e.id) as employee_count
+       FROM departments d
+       LEFT JOIN employees e ON d.id = e.department_id AND e.deleted_at IS NULL AND e.employment_status = 'active'
+       GROUP BY d.id, d.name
+       ORDER BY employee_count DESC`
     );
 
-    // Monthly Income vs Expense Trend (Last 6 months)
-    const monthlyTrends = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(currentYear, currentMonth - 1 - i, 1);
-      const m = d.getMonth() + 1;
-      const y = d.getFullYear();
+    const baseDashboard = {
+      role: roleName,
+      metrics: {
+        totalEmployees: empCountRows[0]?.total_employees || 0,
+        activeEmployees: empCountRows[0]?.active_employees || 0,
+        presentToday: todayAttRows[0]?.present_today || 0,
+        absentToday: todayAttRows[0]?.absent_today || 0,
+        leaveToday: todayAttRows[0]?.leave_today || 0,
+        pendingLeaveRequests: pendingLeavesCount[0]?.count || 0,
+        totalProjects: projectStats[0]?.total_projects || 0,
+        activeProjects: projectStats[0]?.active_projects || 0,
+        openTasks: taskStats[0]?.open_tasks || 0,
+        monthlyIncome: Number(incomeRows[0]?.monthly_income) || 0,
+        monthlyExpenses: Number(expenseRows[0]?.monthly_expenses) || 0,
+        outstandingInvoicesCount: invoiceStats[0]?.outstanding_count || 0,
+        outstandingInvoicesAmount: Number(invoiceStats[0]?.outstanding_amount) || 0,
+        payrollStatus: payrollRun[0]?.status || 'pending',
+      },
+      recentActivity,
+      departmentBreakdown: deptBreakdown,
+    };
 
-      const inc = await query<any[]>(
-        'SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE MONTH(date) = ? AND YEAR(date) = ?',
-        [m, y]
+    // -------------------------------------------------------------------------
+    // 3. SUPER ADMIN EXTRA DATA (Investments & System Security Overview)
+    // -------------------------------------------------------------------------
+    if (roleName === 'super_admin') {
+      const userCountRows = await query<any[]>('SELECT COUNT(*) as total_users FROM users');
+      const investmentRows = await query<any[]>(
+        `SELECT
+           COUNT(*) as total_investments,
+           COALESCE(SUM(amount), 0) as total_invested,
+           COALESCE(SUM(current_value), 0) as total_current_val
+         FROM investments`
       );
-      const exp = await query<any[]>(
-        'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE MONTH(date) = ? AND YEAR(date) = ? AND status = "approved"',
-        [m, y]
-      );
 
-      monthlyTrends.push({
-        month: d.toLocaleString('default', { month: 'short' }),
-        income: parseFloat(inc[0]?.total || '0'),
-        expenses: parseFloat(exp[0]?.total || '0'),
+      const totalInvested = Number(investmentRows[0]?.total_invested) || 0;
+      const totalCurrentVal = Number(investmentRows[0]?.total_current_val) || 0;
+      const returnPct = totalInvested > 0 ? ((totalCurrentVal - totalInvested) / totalInvested) * 100 : 0;
+
+      return sendSuccess(res, {
+        ...baseDashboard,
+        superAdminOnly: {
+          systemStatus: 'healthy',
+          uptimeHours: Math.floor(process.uptime() / 3600),
+          totalUsers: userCountRows[0]?.total_users || 0,
+          investments: {
+            totalInvestments: investmentRows[0]?.total_investments || 0,
+            totalInvested,
+            totalCurrentValue: totalCurrentVal,
+            netGain: totalCurrentVal - totalInvested,
+            returnRate: Number(returnPct.toFixed(2)),
+          },
+        },
       });
     }
 
-    // Recent activities (from Audit Logs)
-    const recentActivities = await query<any[]>(
-      `SELECT id, user_name, user_email, action, module, created_at
-       FROM audit_logs
-       ORDER BY created_at DESC
-       LIMIT 8`
-    );
-
-    // Upcoming Holidays
-    const upcomingHolidays = await query<any[]>(
-      'SELECT * FROM holidays WHERE date >= CURDATE() ORDER BY date ASC LIMIT 4'
-    );
-
-    res.json({
-      success: true,
-      role: 'admin',
-      stats: {
-        employees: {
-          total: empStats[0]?.total_employees || 0,
-          active: activeTotal,
-          probation: empStats[0]?.probation_employees || 0,
-        },
-        attendance: {
-          presentToday,
-          absentToday,
-          onLeaveToday,
-          lateToday: attendanceStats[0]?.late_today || 0,
-        },
-        clients: {
-          total: clientCount[0]?.total_clients || 0,
-        },
-        projects: {
-          total: projectStats[0]?.total_projects || 0,
-          active: projectStats[0]?.active_projects || 0,
-          completed: projectStats[0]?.completed_projects || 0,
-        },
-        tasks: {
-          total: taskStats[0]?.total_tasks || 0,
-          pending: taskStats[0]?.pending_tasks || 0,
-          completed: taskStats[0]?.completed_tasks || 0,
-          overdue: taskStats[0]?.overdue_tasks || 0,
-        },
-        financials: {
-          monthlyIncome,
-          monthlyExpenses,
-          monthlyPayroll,
-          netProfit,
-          outstandingReceivables: parseFloat(invoiceSummary[0]?.outstanding_receivables || '0'),
-          overdueInvoices: invoiceSummary[0]?.overdue_count || 0,
-        },
-      },
-      charts: {
-        monthlyTrends,
-        projectStatus: projectStatusChart,
-        taskStatus: taskStatusChart,
-        expenseCategories: expenseCategoryChart,
-      },
-      recentActivities,
-      upcomingHolidays,
-    });
+    return sendSuccess(res, baseDashboard);
   } catch (error) {
     next(error);
   }

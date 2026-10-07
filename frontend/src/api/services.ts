@@ -1,24 +1,25 @@
 import { apiClient } from './client';
 import {
   User, Employee, Department, Client, Lead, Project, Task, Attendance,
-  AttendanceCorrection, TodayAttendanceStatus, AttendanceOverview, ApprovalRequest, ApprovalOverview, LeaveType, LeaveBalance, LeaveApplication, Payroll,
-  PayrollItem, Loan, PerformanceReview, Timesheet, Income, ExpenseCategory,
-  Expense, Invoice, Payment, Asset, CompanyDocument, Announcement, NotificationItem,
-  Meeting, CompanySettings, AuditLog
+  TodayAttendanceStatus, LeaveType, LeaveBalance, LeaveApplication,
+  Payroll, PayrollItem, PerformanceReview, Timesheet, Income,
+  Expense, Invoice, Payment, CompanyDocument, NotificationItem,
+  CompanySettings, AuditLog, Investment
 } from '../types';
 
 export const authApi = {
   login: (data: any) => apiClient.post('/auth/login', data),
-  register: (data: any) => apiClient.post('/auth/register', data),
+  googleLogin: (data: any) => apiClient.post('/auth/google', data),
+  register: (data: any) => apiClient.post('/auth/register-first-admin', data),
   logout: () => apiClient.post('/auth/logout'),
   getMe: () => apiClient.get<{ success: boolean; data: User }>('/auth/me'),
   changePassword: (data: any) => apiClient.post('/auth/change-password', data),
-  updateProfile: (data: any) => apiClient.put('/auth/profile', data),
+  updateProfile: (data: any) => apiClient.put('/users/profile', data),
 };
 
 export const usersApi = {
-  getAll: (params?: any) => apiClient.get('/users', { params }),
   list: (params?: any) => apiClient.get('/users', { params }),
+  getAll: (params?: any) => apiClient.get('/users', { params }),
   getById: (id: string | number) => apiClient.get(`/users/${id}`),
   create: (data: any) => apiClient.post('/users', data),
   update: (id: string | number, data: any) => apiClient.put(`/users/${id}`, data),
@@ -26,17 +27,17 @@ export const usersApi = {
 };
 
 export const rolesApi = {
-  getAll: () => apiClient.get('/roles'),
   list: () => apiClient.get('/roles'),
+  getAll: () => apiClient.get('/roles'),
   getById: (roleId: string | number) => apiClient.get(`/roles/${roleId}`),
+  create: (data: any) => apiClient.post('/roles', data),
   getPermissions: (roleId?: string | number) =>
     roleId ? apiClient.get(`/roles/${roleId}/permissions`) : apiClient.get('/roles/permissions'),
   listAllPermissions: () => apiClient.get('/roles/permissions'),
-  assignPermissions: (roleId: string | number, data: { permission_ids?: number[]; permissionIds?: string[] }) =>
-    apiClient.put(`/roles/${roleId}/permissions`, data),
   updateRolePermissions: (roleId: string | number, permissionIds: string[]) =>
     apiClient.put(`/roles/${roleId}/permissions`, { permissionIds }),
-  create: (data: any) => apiClient.post('/roles', data),
+  assignPermissions: (roleId: string | number, data: any) =>
+    apiClient.put(`/roles/${roleId}/permissions`, data),
 };
 
 export const companyApi = {
@@ -45,8 +46,8 @@ export const companyApi = {
 };
 
 export const employeesApi = {
-  getAll: (params?: any) => apiClient.get('/employees', { params }),
   list: (params?: any) => apiClient.get('/employees', { params }),
+  getAll: (params?: any) => apiClient.get('/employees', { params }),
   getStats: () => apiClient.get<{ success: boolean; data: { total: number; active: number; onLeave: number; newThisMonth: number; probation: number } }>('/employees/stats/summary'),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Employee }>(`/employees/${id}`),
   create: (data: any) => apiClient.post('/employees', data),
@@ -58,17 +59,98 @@ export const employeesApi = {
 };
 
 export const departmentsApi = {
-  getAll: () => apiClient.get<{ success: boolean; data: Department[] }>('/departments'),
   list: () => apiClient.get<{ success: boolean; data: Department[] }>('/departments'),
+  getAll: () => apiClient.get<{ success: boolean; data: Department[] }>('/departments'),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Department }>(`/departments/${id}`),
   create: (data: any) => apiClient.post('/departments', data),
   update: (id: string | number, data: any) => apiClient.put(`/departments/${id}`, data),
   delete: (id: string | number) => apiClient.delete(`/departments/${id}`),
 };
 
+export const attendanceApi = {
+  // Monthly Spreadsheet Grid Matrix
+  getMonthlySheet: (params: { month: number; year: number }) =>
+    apiClient.get('/attendance/sheet', { params }),
+  saveMonthlySheet: (data: { month: number; year: number; updates: any }) =>
+    apiClient.post('/attendance/sheet', data),
+  finalizeMonth: (data: { month: number; year: number; notes?: string }) =>
+    apiClient.post('/attendance/finalize', data),
+  reopenMonth: (data: { month: number; year: number }) =>
+    apiClient.post('/attendance/reopen', data),
+  exportUrl: (month: number, year: number) => `/api/attendance/export?month=${month}&year=${year}`,
+  getMyAttendance: (params?: { month?: number; year?: number }) =>
+    apiClient.get('/attendance/my', { params }),
+  // Additional compatibility endpoints
+  getAll: (params?: any) => apiClient.get('/attendance', { params }),
+  list: (params?: any) => apiClient.get('/attendance', { params }),
+  getTodayStatus: () => apiClient.get('/attendance/today'),
+  clockIn: (data?: any) => apiClient.post('/attendance/clock-in', data || {}),
+  clockOut: (data?: any) => apiClient.post('/attendance/clock-out', data || {}),
+  requestCorrection: (data: any) => apiClient.post('/attendance/correction-request', data),
+  adminCorrection: (data: any) => apiClient.post('/attendance/correction-request', data),
+  getCorrections: (params?: any) => apiClient.get('/attendance/corrections', { params }),
+  listCorrections: (params?: any) => apiClient.get('/attendance/corrections', { params }),
+  reviewCorrection: (id: string | number, data: any) => apiClient.put(`/attendance/corrections/${id}`, data),
+};
+
+export const leaveApi = {
+  getTypes: () => apiClient.get<{ success: boolean; data: LeaveType[] }>('/leave/types'),
+  createType: (data: any) => apiClient.post('/leave/types', data),
+  updateType: (id: string, data: any) => apiClient.put(`/leave/types/${id}`, data),
+  deleteType: (id: string) => apiClient.delete(`/leave/types/${id}`),
+  getBalances: (params?: any) => apiClient.get<{ success: boolean; data: LeaveBalance[] }>('/leave/balances', { params }),
+  listRequests: (params?: any) => apiClient.get('/leave/requests', { params }),
+  getAll: (params?: any) => apiClient.get('/leave/requests', { params }),
+  apply: (data: any) => apiClient.post('/leave/apply', data),
+  approve: (id: string | number, data?: { remarks?: string }) => apiClient.put(`/leave/requests/${id}/approve`, data || {}),
+  reject: (id: string | number, data?: { remarks?: string; rejection_reason?: string }) => apiClient.put(`/leave/requests/${id}/reject`, data || {}),
+  cancel: (id: string | number) => apiClient.post(`/leave/requests/${id}/cancel`),
+  getHolidays: (params?: { year?: number }) => apiClient.get('/leave/holidays', { params }),
+  createHoliday: (data: any) => apiClient.post('/leave/holidays', data),
+  deleteHoliday: (id: string) => apiClient.delete(`/leave/holidays/${id}`),
+};
+
+export const payrollApi = {
+  // Configurable Components
+  getComponents: () => apiClient.get('/payroll/components'),
+  createComponent: (data: any) => apiClient.post('/payroll/components', data),
+  updateComponent: (id: string, data: any) => apiClient.put(`/payroll/components/${id}`, data),
+  deleteComponent: (id: string) => apiClient.delete(`/payroll/components/${id}`),
+
+  // Employee Salary Structure
+  getEmployeeStructure: (employeeId: string) => apiClient.get(`/payroll/structures/${employeeId}`),
+  updateEmployeeStructure: (employeeId: string, data: any) => apiClient.put(`/payroll/structures/${employeeId}`, data),
+
+  // Payroll Runs
+  listRuns: (params?: { year?: number }) => apiClient.get('/payroll/runs', { params }),
+  getAll: (params?: any) => apiClient.get('/payroll/runs', { params }),
+  getRunById: (id: string) => apiClient.get(`/payroll/runs/${id}`),
+  calculate: (data: { month: number; year: number }) => apiClient.post('/payroll/calculate', data),
+  finalize: (data: { id: string }) => apiClient.post('/payroll/finalize', data),
+  reopen: (data: { id: string }) => apiClient.post('/payroll/reopen', data),
+
+  // Payslips
+  getPayslip: (id: string | number) => apiClient.get(`/payroll/payslips/${id}`),
+  getById: (id: string | number) => apiClient.get(`/payroll/payslips/${id}`),
+  getMyPayslips: () => apiClient.get('/payroll/my-payslips'),
+  process: (data: any) => apiClient.post('/payroll/calculate', data),
+  generateMonthly: (data: any) => apiClient.post('/payroll/calculate', data),
+};
+
+export const investmentsApi = {
+  list: () => apiClient.get('/investments'),
+  getAll: () => apiClient.get('/investments'),
+  getById: (id: string) => apiClient.get(`/investments/${id}`),
+  create: (data: any) => apiClient.post('/investments', data),
+  update: (id: string, data: any) => apiClient.put(`/investments/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/investments/${id}`),
+};
+
+export const investmentApi = investmentsApi;
+
 export const clientsApi = {
-  getAll: (params?: any) => apiClient.get('/clients', { params }),
   list: (params?: any) => apiClient.get('/clients', { params }),
+  getAll: (params?: any) => apiClient.get('/clients', { params }),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Client }>(`/clients/${id}`),
   create: (data: any) => apiClient.post('/clients', data),
   update: (id: string | number, data: any) => apiClient.put(`/clients/${id}`, data),
@@ -76,17 +158,17 @@ export const clientsApi = {
 };
 
 export const leadsApi = {
-  getAll: (params?: any) => apiClient.get('/leads', { params }),
   list: (params?: any) => apiClient.get('/leads', { params }),
+  getAll: (params?: any) => apiClient.get('/leads', { params }),
   create: (data: any) => apiClient.post('/leads', data),
   update: (id: string | number, data: any) => apiClient.put(`/leads/${id}`, data),
-  convert: (id: string | number, data?: any) => apiClient.post(`/leads/${id}/convert`, data || {}),
   delete: (id: string | number) => apiClient.delete(`/leads/${id}`),
+  convert: (id: string | number, data?: any) => apiClient.post(`/leads/${id}/convert`, data || {}),
 };
 
 export const projectsApi = {
-  getAll: (params?: any) => apiClient.get('/projects', { params }),
   list: (params?: any) => apiClient.get('/projects', { params }),
+  getAll: (params?: any) => apiClient.get('/projects', { params }),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Project }>(`/projects/${id}`),
   create: (data: any) => apiClient.post('/projects', data),
   update: (id: string | number, data: any) => apiClient.put(`/projects/${id}`, data),
@@ -96,168 +178,147 @@ export const projectsApi = {
 };
 
 export const tasksApi = {
-  getAll: (params?: any) => apiClient.get('/tasks', { params }),
   list: (params?: any) => apiClient.get('/tasks', { params }),
-  getKanban: (params?: any) => apiClient.get<{ success: boolean; data: Record<string, Task[]> }>('/tasks/kanban', { params }),
+  getAll: (params?: any) => apiClient.get('/tasks', { params }),
+  getKanban: (params?: any) => apiClient.get('/tasks', { params }),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Task }>(`/tasks/${id}`),
   create: (data: any) => apiClient.post('/tasks', data),
   update: (id: string | number, data: any) => apiClient.put(`/tasks/${id}`, data),
+  updateStatus: (id: string | number, status: string) => apiClient.put(`/tasks/${id}`, { status }),
   delete: (id: string | number) => apiClient.delete(`/tasks/${id}`),
-  addComment: (id: string | number, data: { comment: string } | string) =>
-    apiClient.post(`/tasks/${id}/comments`, typeof data === 'string' ? { comment: data } : data),
-  addAttachment: (id: string | number, formData: FormData) =>
-    apiClient.post(`/tasks/${id}/attachments`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  addChecklistItem: (id: string | number, data: { title: string }) => apiClient.post(`/tasks/${id}/checklists`, data),
-  addChecklist: (id: string | number, title: string) => apiClient.post(`/tasks/${id}/checklists`, { title }),
-  updateChecklistItem: (taskId: string | number, checklistId: string | number, data: any) =>
-    apiClient.put(`/tasks/${taskId}/checklists/${checklistId}`, data),
-  deleteChecklistItem: (taskId: string | number, checklistId: string | number) =>
-    apiClient.delete(`/tasks/${taskId}/checklists/${checklistId}`),
-  toggleChecklist: (checklistId: string | number, isCompleted: boolean) =>
-    apiClient.put(`/tasks/checklists/${checklistId}/toggle`, { isCompleted }),
-};
-
-export const attendanceApi = {
-  clockIn: (data?: any) => apiClient.post('/attendance/clock-in', data || {}),
-  clockOut: (data?: any) => apiClient.post('/attendance/clock-out', data || {}),
-  checkIn: () => apiClient.post('/attendance/clock-in'),
-  checkOut: () => apiClient.post('/attendance/clock-out'),
-  getMyStatus: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/me'),
-  getMyHistory: (params?: any) => apiClient.get<{ success: boolean; data: Attendance[] }>('/attendance/my-history', { params }),
-  getTodayStatus: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/today'),
-  getToday: () => apiClient.get<{ success: boolean; data: TodayAttendanceStatus }>('/attendance/today'),
-  getOverview: (params?: any) => apiClient.get<{ success: boolean; data: AttendanceOverview }>('/attendance/overview', { params }),
-  getAll: (params?: any) => apiClient.get('/attendance', { params }),
-  list: (params?: any) => apiClient.get('/attendance', { params }),
-  adminCorrection: (data: any) => apiClient.post<{ success: boolean; message: string }>('/attendance/admin-correction', data),
-  requestCorrection: (data: any) => apiClient.post('/attendance/correction', data),
-  listCorrections: (params?: any) => apiClient.get<{ success: boolean; data: AttendanceCorrection[] }>('/attendance/corrections', { params }),
-  reviewCorrection: (id: string | number, data: any) => apiClient.put(`/attendance/corrections/${id}/review`, data),
-};
-
-export const leaveApi = {
-  getTypes: () => apiClient.get<{ success: boolean; data: LeaveType[] }>('/leave/types'),
-  createType: (data: any) => apiClient.post('/leave/types', data),
-  getBalances: (params?: any) => apiClient.get<{ success: boolean; data: LeaveBalance[] }>('/leave/balances', { params }),
-  apply: (data: any) => apiClient.post('/leave/apply', data),
-  getAll: (params?: any) => apiClient.get('/leave/requests', { params }),
-  listRequests: (params?: any) => apiClient.get('/leave/requests', { params }),
-  approve: (id: string | number, data?: any) => apiClient.put(`/leave/requests/${id}/approve`, data || {}),
-  reject: (id: string | number, data?: any) => apiClient.put(`/leave/requests/${id}/reject`, data || {}),
-  reviewRequest: (id: string | number, data: any) => apiClient.put(`/leave/requests/${id}/review`, data),
-};
-
-export const payrollApi = {
-  getAll: (params?: any) => apiClient.get('/payroll', { params }),
-  list: (params?: any) => apiClient.get('/payroll', { params }),
-  getById: (id: string | number) => apiClient.get<{ success: boolean; data: Payroll }>(`/payroll/${id}`),
-  generateMonthly: (data: any) => apiClient.post('/payroll/generate', data),
-  process: (data: any) => apiClient.post('/payroll/generate', data),
-  approve: (id: string | number) => apiClient.put(`/payroll/${id}/approve`),
-  markPaid: (id: string | number, data?: any) => apiClient.put(`/payroll/${id}/pay`, data || {}),
-  getPayslip: (id: string | number) => apiClient.get<{ success: boolean; data: { payslip: PayrollItem; company: CompanySettings } }>(`/payroll/${id}`),
-};
-
-export const loansApi = {
-  getAll: (params?: any) => apiClient.get('/loans', { params }),
-  list: (params?: any) => apiClient.get('/loans', { params }),
-  apply: (data: any) => apiClient.post('/loans', data),
-  create: (data: any) => apiClient.post('/loans', data),
-  approve: (id: string | number, data?: any) => apiClient.put(`/loans/${id}/approve`, data || {}),
-  reject: (id: string | number, data?: any) => apiClient.put(`/loans/${id}/reject`, data || {}),
-  review: (id: string | number, data: any) => apiClient.put(`/loans/${id}/review`, data),
-};
-
-export const performanceApi = {
-  getAll: (params?: any) => apiClient.get('/performance', { params }),
-  list: (params?: any) => apiClient.get('/performance', { params }),
-  create: (data: any) => apiClient.post('/performance', data),
+  addComment: (id: string | number, comment: any) =>
+    apiClient.post(`/tasks/${id}/comments`, typeof comment === 'string' ? { comment } : comment),
+  addChecklistItem: (taskId: string | number, title: any) =>
+    apiClient.post(`/tasks/${taskId}/checklist`, typeof title === 'string' ? { title } : title),
+  updateChecklistItem: (taskId: string | number, itemId: string | number, data: any) =>
+    apiClient.put(`/tasks/${taskId}/checklist/${itemId}`, data),
+  toggleChecklistItem: (taskId: string | number, itemId: string | number) =>
+    apiClient.put(`/tasks/${taskId}/checklist/${itemId}/toggle`),
+  deleteChecklistItem: (taskId: string | number, itemId: string | number) =>
+    apiClient.delete(`/tasks/${taskId}/checklist/${itemId}`),
 };
 
 export const timesheetsApi = {
-  getAll: (params?: any) => apiClient.get('/timesheets', { params }),
   list: (params?: any) => apiClient.get('/timesheets', { params }),
+  getAll: (params?: any) => apiClient.get('/timesheets', { params }),
   create: (data: any) => apiClient.post('/timesheets', data),
   log: (data: any) => apiClient.post('/timesheets', data),
-  approve: (id: string | number) => apiClient.put(`/timesheets/${id}/approve`),
-  reject: (id: string | number, data?: any) => apiClient.put(`/timesheets/${id}/reject`, data || {}),
-  review: (id: string | number, data: any) => apiClient.put(`/timesheets/${id}/review`, data),
+  approve: (id: string | number) => apiClient.put(`/timesheets/${id}`, { status: 'approved' }),
+  reject: (id: string | number) => apiClient.put(`/timesheets/${id}`, { status: 'rejected' }),
   delete: (id: string | number) => apiClient.delete(`/timesheets/${id}`),
 };
 
+export const performanceApi = {
+  list: (params?: any) => apiClient.get('/performance', { params }),
+  getAll: (params?: any) => apiClient.get('/performance', { params }),
+  create: (data: any) => apiClient.post('/performance', data),
+};
+
 export const financeApi = {
-  getIncomes: (params?: any) => apiClient.get('/finance/incomes', { params }),
-  listIncomes: (params?: any) => apiClient.get('/finance/incomes', { params }),
-  createIncome: (data: any) => apiClient.post('/finance/incomes', data),
-  getCategories: () => apiClient.get<{ success: boolean; data: ExpenseCategory[] }>('/finance/expense-categories'),
-  listCategories: () => apiClient.get<{ success: boolean; data: ExpenseCategory[] }>('/finance/expense-categories'),
-  createCategory: (data: any) => apiClient.post('/finance/expense-categories', data),
-  getExpenses: (params?: any) => apiClient.get('/finance/expenses', { params }),
+  getOverview: (params?: any) => apiClient.get('/finance/overview', { params }),
+  getAll: (params?: any) => apiClient.get('/finance/overview', { params }),
+  getProfitLoss: (params?: any) => apiClient.get('/finance/overview', { params }),
+  getStats: (params?: any) => apiClient.get('/finance/overview', { params }),
+  getCategories: () => Promise.resolve({ data: { success: true, data: [
+    { id: 1, name: 'Operations' },
+    { id: 2, name: 'Software & Subscriptions' },
+    { id: 3, name: 'Rent & Facilities' },
+    { id: 4, name: 'Payroll & Benefits' },
+    { id: 5, name: 'Marketing & Sales' },
+    { id: 6, name: 'Equipment & Hardware' },
+    { id: 7, name: 'Travel & Events' },
+    { id: 8, name: 'Other' }
+  ] } }),
+
+  listIncome: (params?: any) => apiClient.get('/finance/income', { params }),
+  getIncomes: (params?: any) => apiClient.get('/finance/income', { params }),
+  createIncome: (data: any) => apiClient.post('/finance/income', data),
+  updateIncome: (id: string, data: any) => apiClient.put(`/finance/income/${id}`, data),
+  deleteIncome: (id: string) => apiClient.delete(`/finance/income/${id}`),
+
   listExpenses: (params?: any) => apiClient.get('/finance/expenses', { params }),
-  createExpense: (formData: FormData) =>
-    apiClient.post('/finance/expenses', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  deleteExpense: (id: string | number) => apiClient.delete(`/finance/expenses/${id}`),
-  getProfitLoss: (params?: any) => apiClient.get('/finance/summary', { params }),
-  getSummary: (params?: any) => apiClient.get('/finance/summary', { params }),
+  getExpenses: (params?: any) => apiClient.get('/finance/expenses', { params }),
+  createExpense: (data: any) => apiClient.post('/finance/expenses', data),
+  updateExpense: (id: string, data: any) => apiClient.put(`/finance/expenses/${id}`, data),
+  deleteExpense: (id: string) => apiClient.delete(`/finance/expenses/${id}`),
 };
 
 export const invoicesApi = {
-  getAll: (params?: any) => apiClient.get('/invoices', { params }),
   list: (params?: any) => apiClient.get('/invoices', { params }),
+  getAll: (params?: any) => apiClient.get('/invoices', { params }),
   getById: (id: string | number) => apiClient.get<{ success: boolean; data: Invoice }>(`/invoices/${id}`),
   create: (data: any) => apiClient.post('/invoices', data),
-  updateStatus: (id: string | number, status: string) => apiClient.put(`/invoices/${id}/status`, { status }),
+  updateStatus: (id: string | number, status: string) => apiClient.put(`/invoices/${id}`, { status }),
   delete: (id: string | number) => apiClient.delete(`/invoices/${id}`),
 };
 
 export const paymentsApi = {
-  getAll: (params?: any) => apiClient.get('/payments', { params }),
   list: (params?: any) => apiClient.get('/payments', { params }),
+  getAll: (params?: any) => apiClient.get('/payments', { params }),
   create: (data: any) => apiClient.post('/payments', data),
-  record: (data: any) => apiClient.post('/payments', data),
+};
+
+export const loansApi = {
+  list: (params?: any) => apiClient.get('/loans', { params }),
+  getAll: (params?: any) => apiClient.get('/loans', { params }),
+  create: (data: any) => apiClient.post('/loans', data),
+  apply: (data: any) => apiClient.post('/loans', data),
+  approve: (id: string | number) => apiClient.put(`/loans/${id}/approve`),
+  reject: (id: string | number, data?: any) => apiClient.put(`/loans/${id}/reject`, data || {}),
 };
 
 export const assetsApi = {
-  getAll: (params?: any) => apiClient.get('/assets', { params }),
   list: (params?: any) => apiClient.get('/assets', { params }),
+  getAll: (params?: any) => apiClient.get('/assets', { params }),
   create: (data: any) => apiClient.post('/assets', data),
   update: (id: string | number, data: any) => apiClient.put(`/assets/${id}`, data),
   assign: (id: string | number, data: any) => apiClient.post(`/assets/${id}/assign`, data),
   return: (id: string | number, data?: any) => apiClient.post(`/assets/${id}/return`, data || {}),
-  returnAsset: (id: string | number, data: any) => apiClient.post(`/assets/${id}/return`, data),
   delete: (id: string | number) => apiClient.delete(`/assets/${id}`),
 };
 
-export const documentsApi = {
-  getAll: (params?: any) => apiClient.get('/documents', { params }),
-  list: (params?: any) => apiClient.get('/documents', { params }),
-  upload: (formData: FormData) =>
-    apiClient.post('/documents', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  delete: (id: string | number) => apiClient.delete(`/documents/${id}`),
-};
-
 export const announcementsApi = {
+  list: (params?: any) => apiClient.get('/announcements', { params }),
   getAll: (params?: any) => apiClient.get('/announcements', { params }),
-  list: () => apiClient.get<{ success: boolean; data: Announcement[] }>('/announcements'),
   create: (data: any) => apiClient.post('/announcements', data),
   delete: (id: string | number) => apiClient.delete(`/announcements/${id}`),
 };
 
-export const notificationsApi = {
-  list: () => apiClient.get<{ success: boolean; data: { notifications: NotificationItem[]; unreadCount: number } }>('/notifications'),
-  markRead: (id: string | number) => apiClient.put(`/notifications/${id}/read`),
-  markAllRead: () => apiClient.put('/notifications/read-all'),
-};
-
 export const meetingsApi = {
+  list: (params?: any) => apiClient.get('/meetings', { params }),
   getAll: (params?: any) => apiClient.get('/meetings', { params }),
-  list: () => apiClient.get<{ success: boolean; data: Meeting[] }>('/meetings'),
   create: (data: any) => apiClient.post('/meetings', data),
   delete: (id: string | number) => apiClient.delete(`/meetings/${id}`),
 };
 
 export const calendarApi = {
-  getEvents: (params?: any) => apiClient.get('/calendar', { params }),
+  getEvents: (params?: any) => apiClient.get('/leave/holidays', { params }),
+  getAll: (params?: any) => apiClient.get('/leave/holidays', { params }),
+};
+
+export const approvalsApi = {
+  getOverview: () => apiClient.get('/leave/requests?status=pending'),
+  list: (params?: any) => apiClient.get('/leave/requests', { params }),
+  getAll: (params?: any) => apiClient.get('/leave/requests', { params }),
+  approve: (id: string | number, data?: any) => apiClient.put(`/leave/requests/${id}/approve`, data || {}),
+  reject: (id: string | number, data?: any) => apiClient.put(`/leave/requests/${id}/reject`, data || {}),
+  decision: (id: string | number, data: any) => apiClient.post(`/approvals/${id}/decision`, data),
+  getHistory: (id: string | number) => apiClient.get(`/approvals/${id}/history`),
+};
+
+export const documentsApi = {
+  list: (params?: any) => apiClient.get('/documents', { params }),
+  getAll: (params?: any) => apiClient.get('/documents', { params }),
+  upload: (formData: FormData) =>
+    apiClient.post('/documents', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  delete: (id: string | number) => apiClient.delete(`/documents/${id}`),
+};
+
+export const notificationsApi = {
+  list: () => apiClient.get<{ success: boolean; data: { notifications: NotificationItem[]; unreadCount: number } }>('/notifications'),
+  getAll: () => apiClient.get<{ success: boolean; data: { notifications: NotificationItem[]; unreadCount: number } }>('/notifications'),
+  markRead: (id: string | number) => apiClient.put(`/notifications/${id}/read`),
+  markAllRead: () => apiClient.put('/notifications/read-all'),
 };
 
 export const reportsApi = {
@@ -269,19 +330,10 @@ export const dashboardApi = {
 };
 
 export const auditApi = {
-  getAll: (params?: any) => apiClient.get('/audit', { params }),
   list: (params?: any) => apiClient.get('/audit', { params }),
+  getAll: (params?: any) => apiClient.get('/audit', { params }),
 };
 
 export const searchApi = {
   global: (q: string) => apiClient.get('/search', { params: { q } }),
 };
-
-export const approvalsApi = {
-  list: (params?: any) => apiClient.get<{ success: boolean; data: { records: ApprovalRequest[]; pagination: any; overview: ApprovalOverview } }>('/approvals', { params }),
-  getPending: (params?: any) => apiClient.get<{ success: boolean; data: { records: ApprovalRequest[]; pagination: any; overview: ApprovalOverview } }>('/approvals/pending', { params }),
-  getHistory: (id: string) => apiClient.get<{ success: boolean; data: any[] }>(`/approvals/history/${id}`),
-  decision: (id: string, data: { action: 'approve' | 'reject' | 'return'; remarks?: string }) => apiClient.post(`/approvals/${id}/decision`, data),
-  cancel: (id: string, data?: { remarks?: string }) => apiClient.post(`/approvals/${id}/cancel`, data || {}),
-};
-

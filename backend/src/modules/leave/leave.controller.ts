@@ -3,35 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../config/db';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../utils/auditLogger';
-import { ApprovalService } from '../../services/approval.service';
+import { sendSuccess, sendCreated } from '../../utils/response';
 
-export async function listLeaveTypes(req: Request, res: Response, next: NextFunction) {
-  try {
-    const types = await query<any[]>('SELECT * FROM leave_types ORDER BY name ASC');
-    res.json({ success: true, data: types });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function createLeaveType(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { name, daysAllowedPerYear, isPaid, requiresAttachment, description } = req.body;
-    if (!name) throw new AppError('Leave type name is required', 400);
-
-    const id = `leave-${uuidv4()}`;
-    await query(
-      `INSERT INTO leave_types (id, name, days_allowed_per_year, is_paid, requires_attachment, description, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [id, name.trim(), daysAllowedPerYear || 12, isPaid !== false ? 1 : 0, requiresAttachment ? 1 : 0, description || null]
-    );
-
-    res.status(201).json({ success: true, message: 'Leave type created successfully', data: { id } });
-  } catch (error) {
-    next(error);
-  }
-}
-
+// Helper to resolve employee ID
 async function resolveEmployeeId(req: Request): Promise<string | null> {
   if (req.user?.employeeId) return req.user.employeeId;
   const bodyOrQuery = req.body?.employee_id || req.body?.employeeId || req.query?.employee_id || req.query?.employeeId;
@@ -43,19 +17,131 @@ async function resolveEmployeeId(req: Request): Promise<string | null> {
   return null;
 }
 
-export async function getMyLeaveBalances(req: Request, res: Response, next: NextFunction) {
+/**
+ * GET /api/leave/types
+ * List configurable leave types
+ */
+export async function listLeaveTypes(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = await resolveEmployeeId(req);
+    const types = await query<any[]>('SELECT * FROM leave_types ORDER BY name ASC');
+    return sendSuccess(res, types);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/leave/types
+ * Create new configurable leave type
+ */
+export async function createLeaveType(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { name, daysAllowedPerYear, isPaid, isActive, description } = req.body;
+    if (!name) throw new AppError('Leave type name is required', 400);
+
+    const id = `lt-${uuidv4().slice(0, 8)}`;
+    await query(
+      `INSERT INTO leave_types (id, name, days_allowed_per_year, is_paid, is_active, description, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+      [id, name.trim(), daysAllowedPerYear || 12, isPaid !== false ? 1 : 0, isActive !== false ? 1 : 0, description || null]
+    );
+
+    await logAudit({
+      userId: req.user?.id,
+      userEmail: req.user?.email,
+      userName: `${req.user?.firstName} ${req.user?.lastName}`,
+      action: 'CREATE_LEAVE_TYPE',
+      module: 'LEAVE',
+      recordId: id,
+      newValue: { name, daysAllowedPerYear, isPaid },
+      ipAddress: req.ip,
+    });
+
+    return sendCreated(res, { id, name }, 'Leave type created successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /api/leave/types/:id
+ * Update configurable leave type
+ */
+export async function updateLeaveType(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const { name, daysAllowedPerYear, isPaid, isActive, description } = req.body;
+
+    await query(
+      `UPDATE leave_types
+       SET name = COALESCE(?, name),
+           days_allowed_per_year = COALESCE(?, days_allowed_per_year),
+           is_paid = COALESCE(?, is_paid),
+           is_active = COALESCE(?, is_active),
+           description = COALESCE(?, description),
+           updated_at = NOW()
+       WHERE id = ?`,
+      [
+        name ? name.trim() : null,
+        daysAllowedPerYear !== undefined ? daysAllowedPerYear : null,
+        isPaid !== undefined ? (isPaid ? 1 : 0) : null,
+        isActive !== undefined ? (isActive ? 1 : 0) : null,
+        description !== undefined ? description : null,
+        id,
+      ]
+    );
+
+    return sendSuccess(res, { id, updated: true }, undefined, 200, 'Leave type updated successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * DELETE /api/leave/types/:id
+ * Delete leave type
+ */
+export async function deleteLeaveType(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM leave_types WHERE id = ?', [id]);
+    return sendSuccess(res, { id, deleted: true }, undefined, 200, 'Leave type deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /api/leave/balances
+ * Get leave balances for an employee or all employees
+ */
+export async function getLeaveBalances(req: Request, res: Response, next: NextFunction) {
+  try {
+    const requestedEmpId = req.query.employeeId as string || req.query.employee_id as string;
+    let employeeId = requestedEmpId;
+
+    if (!employeeId || req.user?.roleName === 'employee') {
+      employeeId = await resolveEmployeeId(req) || '';
+    }
+
     const year = parseInt(req.query.year as string || `${new Date().getFullYear()}`, 10);
 
     if (!employeeId) {
-      // If super admin has no employee profile, return general balance summaries or empty list
-      return res.json({ success: true, data: [] });
+      return sendSuccess(res, []);
     }
 
-    // Check if balances exist for this year, if not auto-initialize from leave_types
-    let balances = await query<any[]>(
-      `SELECT lb.*, lt.name as leave_type_name, lt.is_paid, lt.requires_attachment, lt.description
+    // Auto-initialize missing leave balances from active leave_types if needed
+    const types = await query<any[]>('SELECT id, name, days_allowed_per_year, is_paid FROM leave_types WHERE is_active = 1');
+    for (const lt of types) {
+      await query(
+        `INSERT IGNORE INTO leave_balances (id, employee_id, leave_type_id, year, total_days, used_days, pending_days, remaining_days)
+         VALUES (?, ?, ?, ?, ?, 0, 0, ?)`,
+        [`lb-${employeeId}-${lt.id}-${year}`, employeeId, lt.id, year, lt.days_allowed_per_year, lt.days_allowed_per_year]
+      );
+    }
+
+    const balances = await query<any[]>(
+      `SELECT lb.*, lt.name as leave_type_name, lt.is_paid, lt.description
        FROM leave_balances lb
        JOIN leave_types lt ON lb.leave_type_id = lt.id
        WHERE lb.employee_id = ? AND lb.year = ?
@@ -63,44 +149,32 @@ export async function getMyLeaveBalances(req: Request, res: Response, next: Next
       [employeeId, year]
     );
 
-    if (balances.length === 0) {
-      const types = await query<any[]>('SELECT * FROM leave_types');
-      for (const lt of types) {
-        const balId = `bal-${uuidv4()}`;
-        await query(
-          `INSERT IGNORE INTO leave_balances (id, employee_id, leave_type_id, year, total_days, used_days, pending_days, remaining_days, created_at)
-           VALUES (?, ?, ?, ?, ?, 0, 0, ?, NOW())`,
-          [balId, employeeId, lt.id, year, lt.days_allowed_per_year, lt.days_allowed_per_year]
-        );
-      }
-
-      balances = await query<any[]>(
-        `SELECT lb.*, lt.name as leave_type_name, lt.is_paid, lt.requires_attachment, lt.description
-         FROM leave_balances lb
-         JOIN leave_types lt ON lb.leave_type_id = lt.id
-         WHERE lb.employee_id = ? AND lb.year = ?
-         ORDER BY lt.name ASC`,
-        [employeeId, year]
-      );
-    }
-
-    res.json({ success: true, data: balances });
+    return sendSuccess(res, balances);
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * POST /api/leave/apply
+ * Employee applies for leave
+ */
 export async function applyLeave(req: Request, res: Response, next: NextFunction) {
   try {
-    const employeeId = await resolveEmployeeId(req);
-    if (!employeeId) throw new AppError('Employee profile not found. Please link an employee record.', 400);
-
     const leaveTypeId = req.body.leaveTypeId || req.body.leave_type_id;
     const startDate = req.body.startDate || req.body.start_date;
     const endDate = req.body.endDate || req.body.end_date;
-    const isHalfDay = req.body.isHalfDay || req.body.is_half_day || false;
     const reason = req.body.reason;
     const attachmentUrl = req.body.attachmentUrl || req.body.attachment_url;
+    let employeeId = await resolveEmployeeId(req);
+
+    if (req.body.employeeId && req.user?.roleName !== 'employee') {
+      employeeId = req.body.employeeId;
+    }
+
+    if (!employeeId) {
+      throw new AppError('No employee profile associated with this account', 400);
+    }
 
     if (!leaveTypeId || !startDate || !endDate || !reason) {
       throw new AppError('Leave type, start date, end date, and reason are required', 400);
@@ -108,171 +182,119 @@ export async function applyLeave(req: Request, res: Response, next: NextFunction
 
     const start = new Date(startDate);
     const end = new Date(endDate);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new AppError('Invalid start date or end date format', 400);
-    }
-    if (start > end) {
-      throw new AppError('Start date cannot be after end date', 400);
+    if (end < start) {
+      throw new AppError('End date cannot be earlier than start date', 400);
     }
 
-    // Calculate total leave days
-    let calculatedDays: number;
-    if (isHalfDay) {
-      calculatedDays = 0.5;
-    } else if (req.body.totalDays || req.body.total_days) {
-      calculatedDays = parseFloat(String(req.body.totalDays || req.body.total_days));
-    } else {
-      // Calculate working days (excluding Sundays by default)
-      let count = 0;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        if (d.getDay() !== 0) { // Exclude Sunday
-          count++;
-        }
+    // Calculate business days
+    let totalDays = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) { // exclude Sat/Sun
+        totalDays++;
       }
-      calculatedDays = Math.max(1, count);
     }
+    if (totalDays === 0) totalDays = 1;
 
     const year = start.getFullYear();
 
-    // Verify leave type exists
-    const ltRows = await query<any[]>('SELECT * FROM leave_types WHERE id = ?', [leaveTypeId]);
-    if (ltRows.length === 0) {
-      throw new AppError('Selected leave category does not exist', 404);
-    }
-
-    // Check for overlapping pending or approved leave requests
-    const overlapRows = await query<any[]>(
-      `SELECT id FROM leave_requests 
-       WHERE employee_id = ? 
-         AND status IN ('pending', 'approved') 
-         AND ((start_date <= ? AND end_date >= ?) OR (start_date <= ? AND end_date >= ?))`,
-      [employeeId, endDate, startDate, startDate, endDate]
-    );
-    if (overlapRows.length > 0) {
-      throw new AppError('You already have an active leave request covering this date period', 400);
-    }
-
     // Check balance
-    let balanceRows = await query<any[]>(
+    const balanceRows = await query<any[]>(
       'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?',
       [employeeId, leaveTypeId, year]
     );
 
-    if (balanceRows.length === 0) {
-      // Auto initialize balance from leave type if missing
-      const lt = ltRows[0];
-      const balId = `bal-${uuidv4()}`;
-      await query(
-        `INSERT IGNORE INTO leave_balances (id, employee_id, leave_type_id, year, total_days, used_days, pending_days, remaining_days, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, 0, ?, NOW())`,
-        [balId, employeeId, lt.id, year, lt.days_allowed_per_year, lt.days_allowed_per_year]
-      );
-      balanceRows = await query<any[]>(
-        'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?',
-        [employeeId, leaveTypeId, year]
-      );
-    }
-
     if (balanceRows.length > 0) {
-      const balance = balanceRows[0];
-      const available = Number(balance.remaining_days) - Number(balance.pending_days);
-      if (available < calculatedDays) {
-        throw new AppError(`Insufficient leave balance. You have ${available.toFixed(1)} days available for ${ltRows[0].name}, but requested ${calculatedDays.toFixed(1)} days.`, 400);
+      const remaining = Number(balanceRows[0].remaining_days);
+      const pending = Number(balanceRows[0].pending_days);
+      if (remaining - pending < totalDays) {
+        throw new AppError(`Insufficient leave balance. Available: ${remaining - pending} days, Requested: ${totalDays} days.`, 400, 'INSUFFICIENT_LEAVE_BALANCE');
       }
     }
 
-    const requestId = `lr-${uuidv4()}`;
+    const requestId = `lr-${uuidv4().slice(0, 8)}`;
 
     await withTransaction(async (conn) => {
+      // Insert leave request
       await conn.query(
-        `INSERT INTO leave_requests (
-          id, employee_id, leave_type_id, start_date, end_date, total_days, reason, attachment_url, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
-        [requestId, employeeId, leaveTypeId, startDate, endDate, calculatedDays, String(reason).trim(), attachmentUrl || null]
+        `INSERT INTO leave_requests (id, employee_id, leave_type_id, start_date, end_date, total_days, reason, attachment_url, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())`,
+        [requestId, employeeId, leaveTypeId, startDate, endDate, totalDays, reason, attachmentUrl || null]
       );
 
-      // Increment pending days
+      // Increase pending days in balance
       await conn.query(
-        `UPDATE leave_balances 
-         SET pending_days = pending_days + ? 
+        `UPDATE leave_balances
+         SET pending_days = pending_days + ?
          WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
-        [calculatedDays, employeeId, leaveTypeId, year]
+        [totalDays, employeeId, leaveTypeId, year]
       );
     });
 
-    // Find reporting manager
-    const empInfo = await query<any[]>('SELECT reporting_manager_id FROM employees WHERE id = ?', [employeeId]);
-    const managerId = empInfo[0]?.reporting_manager_id || null;
-
-    // Register with Universal Approval Engine
-    await ApprovalService.submitRequest({
-      entityType: 'leave',
-      entityId: requestId,
-      requesterId: employeeId,
-      currentApproverId: managerId,
-      comments: reason,
-      actorUserId: req.user!.id,
-      actorRole: req.user!.roleName,
-    });
+    // Notify admins
+    const adminUsers = await query<any[]>('SELECT id FROM users WHERE role_id IN ("role-super-admin", "role-admin")');
+    for (const adm of adminUsers) {
+      await query(
+        `INSERT INTO notifications (id, user_id, title, message, type)
+         VALUES (?, ?, 'New Leave Request', 'An employee has submitted a leave application awaiting approval.', 'info')`,
+        [uuidv4(), adm.id]
+      );
+    }
 
     await logAudit({
       userId: req.user?.id,
       userEmail: req.user?.email,
       userName: `${req.user?.firstName} ${req.user?.lastName}`,
-      action: 'APPLY_LEAVE',
+      action: 'LEAVE_APPLY',
       module: 'LEAVE',
       recordId: requestId,
-      newValue: { leaveTypeId, startDate, endDate, totalDays: calculatedDays },
+      newValue: { leaveTypeId, startDate, endDate, totalDays },
       ipAddress: req.ip,
     });
 
-    res.status(201).json({ success: true, message: 'Leave application submitted successfully', data: { id: requestId } });
+    return sendCreated(res, { id: requestId, totalDays, status: 'pending' }, 'Leave application submitted successfully');
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * GET /api/leave/requests
+ * List leave requests
+ */
 export async function listLeaveRequests(req: Request, res: Response, next: NextFunction) {
   try {
     const page = parseInt(req.query.page as string || '1', 10);
     const limit = parseInt(req.query.limit as string || '20', 10);
     const status = req.query.status as string || '';
-    const departmentId = req.query.departmentId as string || '';
-    const employeeId = req.query.employeeId as string || '';
     const offset = (page - 1) * limit;
 
     let whereClause = 'WHERE 1=1';
     const params: any[] = [];
 
-    // If filtering for logged in user's own requests
-    if (req.query.myRequests === 'true' && req.user?.employeeId) {
+    // If Employee role -> force filter to own requests only!
+    if (req.user?.roleName === 'employee') {
+      const empId = await resolveEmployeeId(req);
       whereClause += ' AND lr.employee_id = ?';
-      params.push(req.user.employeeId);
-    } else if (employeeId) {
+      params.push(empId);
+    } else if (req.query.employeeId || req.query.employee_id) {
       whereClause += ' AND lr.employee_id = ?';
-      params.push(employeeId);
+      params.push(req.query.employeeId || req.query.employee_id);
     }
 
     if (status) {
       whereClause += ' AND lr.status = ?';
       params.push(status);
     }
-    if (departmentId) {
-      whereClause += ' AND e.department_id = ?';
-      params.push(departmentId);
-    }
 
     const countRows = await query<any[]>(
-      `SELECT COUNT(*) as total 
-       FROM leave_requests lr
-       JOIN employees e ON lr.employee_id = e.id
-       ${whereClause}`,
+      `SELECT COUNT(*) as total FROM leave_requests lr ${whereClause}`,
       params
     );
     const total = countRows[0]?.total || 0;
 
     const dataSql = `
-      SELECT lr.*, 
+      SELECT lr.*,
              lt.name as leave_type_name, lt.is_paid,
              e.employee_id as employee_code,
              CONCAT(e.first_name, ' ', e.last_name) as employee_name,
@@ -291,41 +313,39 @@ export async function listLeaveRequests(req: Request, res: Response, next: NextF
 
     const requests = await query<any[]>(dataSql, [...params, limit, offset]);
 
-    res.json({
-      success: true,
-      data: requests,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+    return sendSuccess(res, requests, {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * PUT /api/leave/requests/:id/review
+ * Admin approves or rejects leave request
+ */
 export async function reviewLeaveRequest(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const { status, remarks } = req.body; // 'approved' or 'rejected'
+    const { status, remarks } = req.body; // 'approved' | 'rejected'
 
     if (!['approved', 'rejected'].includes(status)) {
       throw new AppError('Status must be either approved or rejected', 400);
     }
 
-    const reqRows = await query<any[]>('SELECT * FROM leave_requests WHERE id = ?', [id]);
+    const reqRows = await query<any[]>(
+      'SELECT lr.*, e.user_id as employee_user_id FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id WHERE lr.id = ?',
+      [id]
+    );
     if (reqRows.length === 0) throw new AppError('Leave request not found', 404);
 
     const leaveReq = reqRows[0];
     if (leaveReq.status !== 'pending') {
-      throw new AppError(`Leave request is already ${leaveReq.status}`, 400);
-    }
-
-    // Self-approval check
-    if (leaveReq.employee_id === req.user?.employeeId && req.user?.roleName !== 'super_admin') {
-      throw new AppError('Self-approval violation: You cannot approve your own leave request', 403);
+      throw new AppError(`Leave request has already been ${leaveReq.status}`, 400);
     }
 
     const year = new Date(leaveReq.start_date).getFullYear();
@@ -333,8 +353,8 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
     await withTransaction(async (conn) => {
       // 1. Update request status
       await conn.query(
-        `UPDATE leave_requests 
-         SET status = ?, approved_by_user_id = ?, reviewer_remarks = ?
+        `UPDATE leave_requests
+         SET status = ?, approved_by_user_id = ?, reviewer_remarks = ?, updated_at = NOW()
          WHERE id = ?`,
         [status, req.user!.id, remarks || null, id]
       );
@@ -342,7 +362,7 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
       // 2. Adjust leave balances
       if (status === 'approved') {
         await conn.query(
-          `UPDATE leave_balances 
+          `UPDATE leave_balances
            SET pending_days = GREATEST(0, pending_days - ?),
                used_days = used_days + ?,
                remaining_days = GREATEST(0, remaining_days - ?)
@@ -350,25 +370,23 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
           [leaveReq.total_days, leaveReq.total_days, leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
         );
 
-        // Only sync attendance for dates that have already occurred or are today (never write future attendance)
-        const todayStr = new Date().toISOString().split('T')[0];
+        // 3. ATTENDANCE INTEGRATION: Automatically mark attendance as 'leave' for ALL dates in range!
         const start = new Date(leaveReq.start_date);
         const end = new Date(leaveReq.end_date);
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toISOString().split('T')[0];
-          if (dateStr <= todayStr) {
-            await conn.query(
-              `INSERT INTO attendance (id, employee_id, date, status, notes, created_at)
-               VALUES (?, ?, ?, 'leave', 'Approved Leave', NOW())
-               ON DUPLICATE KEY UPDATE status = 'leave', notes = 'Approved Leave'`,
-              [uuidv4(), leaveReq.employee_id, dateStr]
-            );
-          }
+          const attId = `att-${leaveReq.employee_id}-${dateStr}`;
+          await conn.query(
+            `INSERT INTO attendance (id, employee_id, date, status, notes, updated_by_user_id)
+             VALUES (?, ?, ?, 'leave', 'Approved Leave', ?)
+             ON DUPLICATE KEY UPDATE status = 'leave', notes = 'Approved Leave', updated_by_user_id = VALUES(updated_by_user_id)`,
+            [attId, leaveReq.employee_id, dateStr, req.user!.id]
+          );
         }
       } else {
         // Rejected: release pending days
         await conn.query(
-          `UPDATE leave_balances 
+          `UPDATE leave_balances
            SET pending_days = GREATEST(0, pending_days - ?)
            WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
           [leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
@@ -376,28 +394,42 @@ export async function reviewLeaveRequest(req: Request, res: Response, next: Next
       }
     });
 
-    // Sync with Universal Approval Engine
-    try {
-      await ApprovalService.processDecision({
-        entityType: 'leave',
-        entityId: id,
-        action: status === 'approved' ? 'approve' : 'reject',
-        actorUserId: req.user!.id,
-        actorEmployeeId: req.user!.employeeId,
-        actorRole: req.user!.roleName,
-        actorPermissions: req.user!.permissions,
-        remarks,
-      });
-    } catch (approvalErr) {
-      // If approval request wasn't already in approval_requests, that's fine
+    // Notify employee
+    if (leaveReq.employee_user_id) {
+      await query(
+        `INSERT INTO notifications (id, user_id, title, message, type)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          uuidv4(),
+          leaveReq.employee_user_id,
+          `Leave Request ${status.toUpperCase()}`,
+          `Your leave request for ${leaveReq.start_date} to ${leaveReq.end_date} has been ${status}.${remarks ? ' Reason: ' + remarks : ''}`,
+          status === 'approved' ? 'success' : 'warning',
+        ]
+      );
     }
 
-    res.json({ success: true, message: `Leave request ${status} successfully` });
+    await logAudit({
+      userId: req.user?.id,
+      userEmail: req.user?.email,
+      userName: `${req.user?.firstName} ${req.user?.lastName}`,
+      action: `LEAVE_${status.toUpperCase()}`,
+      module: 'LEAVE',
+      recordId: id,
+      newValue: { status, remarks },
+      ipAddress: req.ip,
+    });
+
+    return sendSuccess(res, { id, status }, undefined, 200, `Leave request ${status} successfully`);
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * POST /api/leave/requests/:id/cancel
+ * Cancel eligible leave request
+ */
 export async function cancelLeaveRequest(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
@@ -407,7 +439,7 @@ export async function cancelLeaveRequest(req: Request, res: Response, next: Next
     const leaveReq = reqRows[0];
     const employeeId = await resolveEmployeeId(req);
     const isOwner = employeeId && leaveReq.employee_id === employeeId;
-    const isAdmin = req.user?.roleName === 'super_admin' || req.user?.roleName === 'admin' || req.user?.roleName === 'hr_manager';
+    const isAdmin = req.user?.roleName === 'super_admin' || req.user?.roleName === 'admin';
 
     if (!isOwner && !isAdmin) {
       throw new AppError('You do not have permission to cancel this leave request', 403);
@@ -420,24 +452,23 @@ export async function cancelLeaveRequest(req: Request, res: Response, next: Next
     const year = new Date(leaveReq.start_date).getFullYear();
 
     await withTransaction(async (conn) => {
-      // Release balance
       if (leaveReq.status === 'pending') {
         await conn.query(
-          `UPDATE leave_balances 
+          `UPDATE leave_balances
            SET pending_days = GREATEST(0, pending_days - ?)
            WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
           [leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
         );
       } else if (leaveReq.status === 'approved') {
         await conn.query(
-          `UPDATE leave_balances 
+          `UPDATE leave_balances
            SET used_days = GREATEST(0, used_days - ?),
                remaining_days = remaining_days + ?
            WHERE employee_id = ? AND leave_type_id = ? AND year = ?`,
           [leaveReq.total_days, leaveReq.total_days, leaveReq.employee_id, leaveReq.leave_type_id, year]
         );
 
-        // Delete or revert attendance records for this period
+        // Delete / revert attendance
         const start = new Date(leaveReq.start_date);
         const end = new Date(leaveReq.end_date);
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -449,28 +480,55 @@ export async function cancelLeaveRequest(req: Request, res: Response, next: Next
         }
       }
 
-      await conn.query(
-        `UPDATE leave_requests SET status = 'cancelled', updated_at = NOW() WHERE id = ?`,
-        [id]
-      );
+      await conn.query('UPDATE leave_requests SET status = "cancelled", updated_at = NOW() WHERE id = ?', [id]);
     });
 
-    try {
-      await ApprovalService.processDecision({
-        entityType: 'leave',
-        entityId: id,
-        action: 'cancel',
-        actorUserId: req.user!.id,
-        actorEmployeeId: req.user!.employeeId,
-        actorRole: req.user!.roleName,
-        actorPermissions: req.user!.permissions,
-        remarks: 'Cancelled by user',
-      });
-    } catch (e) {}
-
-    res.json({ success: true, message: 'Leave request cancelled successfully' });
+    return sendSuccess(res, { id, status: 'cancelled' }, undefined, 200, 'Leave request cancelled successfully');
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * Holidays Management
+ */
+export async function listHolidays(req: Request, res: Response, next: NextFunction) {
+  try {
+    const year = parseInt(req.query.year as string || `${new Date().getFullYear()}`, 10);
+    const holidays = await query<any[]>(
+      'SELECT * FROM holidays WHERE YEAR(date) = ? ORDER BY date ASC',
+      [year]
+    );
+    return sendSuccess(res, holidays);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createHoliday(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { name, date, description, isOptional } = req.body;
+    if (!name || !date) throw new AppError('Holiday name and date are required', 400);
+
+    const id = `hol-${uuidv4().slice(0, 8)}`;
+    await query(
+      `INSERT INTO holidays (id, name, date, description, is_optional, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [id, name, date, description || null, isOptional ? 1 : 0]
+    );
+
+    return sendCreated(res, { id, name, date }, 'Holiday created successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteHoliday(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM holidays WHERE id = ?', [id]);
+    return sendSuccess(res, { id, deleted: true }, undefined, 200, 'Holiday deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+}

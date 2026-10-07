@@ -55,12 +55,10 @@ export async function authenticate(
       `SELECT u.id, u.email, u.first_name, u.last_name, u.role_id, u.status, u.locked_until,
               r.name as role_name,
               e.id as employee_record_id,
-              e.department_id as employee_department_id,
-              c.id as client_record_id
+              e.department_id as employee_department_id
        FROM users u
        JOIN roles r ON u.role_id = r.id
        LEFT JOIN employees e ON e.user_id = u.id AND e.deleted_at IS NULL
-       LEFT JOIN clients c ON c.user_id = u.id
        WHERE u.id = ?`,
       [decoded.userId]
     );

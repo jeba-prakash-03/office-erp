@@ -1,446 +1,213 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Clock, CheckCircle, XCircle, AlertTriangle, Calendar, 
-  LogIn, LogOut, FileText, Search, UserCheck, Sparkles, AlertCircle, RefreshCw
-} from 'lucide-react';
 import { attendanceApi } from '../../api/services';
-import { Attendance, TodayAttendanceStatus } from '../../types';
-import { PageHeader } from '../../components/ui/PageHeader';
-import { DataTable, Column } from '../../components/ui/DataTable';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import { CorrectionModal } from './CorrectionModal';
-import { useNotification } from '../../context/NotificationContext';
-import { useAuth } from '../../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { LoadingState } from '../../components/ui/LoadingState';
+import { Calendar, CheckCircle2, XCircle, Clock, Sun, AlertCircle } from 'lucide-react';
+import { clsx } from 'clsx';
+
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; full: string; bg: string; text: string; dotColor: string }
+> = {
+  P: { label: 'P', full: 'Present', bg: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60', text: 'text-emerald-700 dark:text-emerald-300', dotColor: 'bg-emerald-500' },
+  A: { label: 'A', full: 'Absent', bg: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60', text: 'text-rose-700 dark:text-rose-300', dotColor: 'bg-rose-500' },
+  L: { label: 'L', full: 'Leave', bg: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60', text: 'text-amber-700 dark:text-amber-300', dotColor: 'bg-amber-500' },
+  HD: { label: 'HD', full: 'Half Day', bg: 'bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800/60', text: 'text-purple-700 dark:text-purple-300', dotColor: 'bg-purple-500' },
+  H: { label: 'H', full: 'Holiday', bg: 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60', text: 'text-blue-700 dark:text-blue-300', dotColor: 'bg-blue-500' },
+  WO: { label: 'WO', full: 'Week Off', bg: 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700', text: 'text-slate-600 dark:text-slate-400', dotColor: 'bg-slate-400' },
+};
 
 export const MyAttendancePage: React.FC = () => {
-  const { user, hasPermission } = useAuth();
-  const { showNotification } = useNotification();
+  const [selectedMonth, setSelectedMonth] = useState<number>(10);
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [todayStatus, setTodayStatus] = useState<TodayAttendanceStatus | null>(null);
-  const [history, setHistory] = useState<Attendance[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [clocking, setClocking] = useState(false);
-  
-  // Filters
-  const [month, setMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
-  const [statusFilter, setStatusFilter] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const months = [
+    { value: 1, label: 'January' },
+    { value: 2, label: 'February' },
+    { value: 3, label: 'March' },
+    { value: 4, label: 'April' },
+    { value: 5, label: 'May' },
+    { value: 6, label: 'June' },
+    { value: 7, label: 'July' },
+    { value: 8, label: 'August' },
+    { value: 9, label: 'September' },
+    { value: 10, label: 'October' },
+    { value: 11, label: 'November' },
+    { value: 12, label: 'December' },
+  ];
 
-  // Modals
-  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+  const years = [2024, 2025, 2026, 2027];
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const fetchAttendanceData = async () => {
+  const fetchMyAttendance = async () => {
     try {
       setLoading(true);
-      const [todayRes, historyRes] = await Promise.all([
-        attendanceApi.getMyStatus(),
-        attendanceApi.getMyHistory({
-          month,
-          status: statusFilter || undefined,
-          search: search || undefined,
-          page,
-          limit: 15,
-        }),
-      ]);
-
-      if (todayRes.data?.success) {
-        setTodayStatus(todayRes.data.data);
-      }
-
-      if (historyRes.data?.success) {
-        const payload: any = historyRes.data.data;
-        if (payload && Array.isArray(payload.records)) {
-          setHistory(payload.records);
-          setTotalPages(payload.pagination?.totalPages || 1);
-          setTotalRecords(payload.pagination?.total || 0);
-        } else if (Array.isArray(payload)) {
-          setHistory(payload);
-          setTotalPages(1);
-          setTotalRecords(payload.length);
-        } else {
-          setHistory([]);
-        }
+      setError(null);
+      const res = await attendanceApi.getMyAttendance({ month: selectedMonth, year: selectedYear });
+      if (res.data?.success && res.data?.data) {
+        setData(res.data.data);
       }
     } catch (err: any) {
-      console.error('Failed to load my attendance data', err);
-      showNotification('error', err.response?.data?.message || 'Failed to load attendance records');
+      setError(err.message || 'Failed to load your attendance');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAttendanceData();
-  }, [month, statusFilter, search, page]);
+    fetchMyAttendance();
+  }, [selectedMonth, selectedYear]);
 
-  const handleClockIn = async () => {
-    if (clocking) return;
-    setClocking(true);
-    try {
-      const res = await attendanceApi.clockIn({});
-      showNotification('success', res.data?.message || 'Punched in successfully! Have a productive day.');
-      await fetchAttendanceData();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to clock in';
-      showNotification('error', errorMsg);
-    } finally {
-      setClocking(false);
-    }
-  };
-
-  const handleClockOut = async () => {
-    if (clocking) return;
-    setClocking(true);
-    try {
-      const res = await attendanceApi.clockOut({});
-      showNotification('success', res.data?.message || 'Punched out successfully! Workday recorded.');
-      await fetchAttendanceData();
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || err.message || 'Failed to clock out';
-      showNotification('error', errorMsg);
-    } finally {
-      setClocking(false);
-    }
-  };
-
-  const formatTimeString = (dtStr?: string | null) => {
-    if (!dtStr) return '—';
-    if (dtStr.length > 10) {
-      const d = new Date(dtStr);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-      }
-      return dtStr.substring(11, 16);
-    }
-    return dtStr;
-  };
-
-  const formatDateString = (dtStr?: string | null) => {
-    if (!dtStr) return '—';
-    const clean = String(dtStr).substring(0, 10);
-    const d = new Date(clean + 'T00:00:00');
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
-    }
-    return clean;
-  };
-
-  const columns: Column<Attendance>[] = [
-    {
-      header: 'Date',
-      accessor: (a: Attendance) => (
-        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-          {formatDateString(a.date)}
-        </span>
-      ),
-    },
-    {
-      header: 'Clock In',
-      accessor: (a: Attendance) => {
-        const inVal = a.check_in || a.clock_in;
-        return (
-          <span className="text-xs font-mono font-medium text-emerald-600 dark:text-emerald-400">
-            {formatTimeString(inVal)}
-          </span>
-        );
-      },
-    },
-    {
-      header: 'Clock Out',
-      accessor: (a: Attendance) => {
-        const outVal = a.check_out || a.clock_out;
-        return (
-          <span className="text-xs font-mono font-medium text-blue-600 dark:text-blue-400">
-            {formatTimeString(outVal)}
-          </span>
-        );
-      },
-    },
-    {
-      header: 'Working Hours',
-      accessor: (a: Attendance) => {
-        const hours = a.working_hours_formatted || (a.total_hours ? `${a.total_hours} hrs` : '—');
-        return (
-          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-            {hours}
-          </span>
-        );
-      },
-    },
-    {
-      header: 'Overtime',
-      accessor: (a: Attendance) => {
-        const ot = a.overtime_hours_formatted || (Number(a.overtime_hours || 0) > 0 ? `+${a.overtime_hours} hrs` : '0h 00m');
-        return (
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-            {ot}
-          </span>
-        );
-      },
-    },
-    {
-      header: 'Status',
-      align: 'right',
-      accessor: (a: Attendance) => <StatusBadge status={a.status || 'present'} />,
-    },
-  ];
+  const summary = data?.summary || { present: 0, absent: 0, leave: 0, halfDay: 0, holiday: 0, weekOff: 0 };
+  const daysMap = data?.days || {};
+  const totalDays = data?.totalDays || 31;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="My Attendance"
-        subtitle="Record your daily work shift, verify check-in timestamps, and view your personal attendance history"
-        action={
-          <button
-            onClick={() => setCorrectionModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors shadow-sm"
+      {/* Header */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+            My Attendance Record
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            View your verified daily attendance and monthly work summary.
+          </p>
+        </div>
+
+        {/* Month Selector */}
+        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-1 border border-slate-200 dark:border-slate-700 self-start md:self-auto">
+          <Calendar className="w-4 h-4 ml-2 mr-1 text-slate-400" />
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+            className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 py-1.5 px-2 focus:outline-none cursor-pointer"
           >
-            <FileText className="w-4 h-4 text-indigo-500" />
-            Request Correction
-          </button>
-        }
-      />
-
-      {/* Profile Check: If user does not have an employee profile linked */}
-      {todayStatus && !todayStatus.hasEmployeeProfile && (
-        <div className="p-5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl flex items-start gap-4">
-          <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
-              User Account Not Linked to an Employee Profile
-            </h4>
-            <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-              Your account is registered with role <strong>{user?.roleName || 'Administrator'}</strong> without an active employee record. Self-service punch-in is intended for employees.
-              {(hasPermission('attendance.view') || hasPermission('attendance.manage')) && (
-                <span className="block mt-2">
-                  <Link
-                    to="/attendance"
-                    className="inline-flex items-center gap-1 font-semibold text-indigo-600 dark:text-indigo-400 underline hover:no-underline"
-                  >
-                    Open Attendance Management &rarr;
-                  </Link>
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Today's Punch Card & Live Shift Tracking */}
-      {todayStatus?.hasEmployeeProfile && (
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white rounded-2xl p-6 shadow-xl space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-5">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-                <Clock className="w-4 h-4 text-indigo-400" />
-                <span>
-                  Today: {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} • <span className="font-mono text-white text-sm">{currentTime}</span>
-                </span>
-              </div>
-              <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-                {todayStatus.isOnLeave ? (
-                  <span className="text-purple-300">Scheduled On Leave</span>
-                ) : todayStatus.isClockedOut ? (
-                  <span className="text-emerald-300">Workday Completed</span>
-                ) : todayStatus.isClockedIn ? (
-                  <span className="text-emerald-400 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Currently Working
-                  </span>
-                ) : (
-                  <span className="text-amber-300">Not Clocked In Today</span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {todayStatus.isOnLeave
-                  ? 'You have approved leave on record for today.'
-                  : todayStatus.isClockedOut
-                  ? `Shift finished. Clock in: ${formatTimeString(todayStatus.checkIn)} • Clock out: ${formatTimeString(todayStatus.checkOut)}`
-                  : todayStatus.isClockedIn
-                  ? `Active since ${formatTimeString(todayStatus.checkIn)}`
-                  : 'Start your shift by recording your check-in timestamp.'}
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-3">
-              {todayStatus.canClockIn && (
-                <button
-                  onClick={handleClockIn}
-                  disabled={clocking}
-                  className="inline-flex items-center gap-2.5 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-semibold rounded-xl shadow-lg transition-all disabled:opacity-50"
-                >
-                  <LogIn className="w-5 h-5" />
-                  {clocking ? 'Recording Punch...' : 'Clock In'}
-                </button>
-              )}
-
-              {todayStatus.canClockOut && (
-                <button
-                  onClick={handleClockOut}
-                  disabled={clocking}
-                  className="inline-flex items-center gap-2.5 px-6 py-3 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-semibold rounded-xl shadow-lg transition-all disabled:opacity-50"
-                >
-                  <LogOut className="w-5 h-5" />
-                  {clocking ? 'Recording Punch...' : 'Clock Out'}
-                </button>
-              )}
-
-              {todayStatus.isClockedOut && (
-                <div className="px-5 py-2.5 bg-emerald-500/20 border border-emerald-400/40 rounded-xl text-emerald-200 font-medium text-sm flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-emerald-400" />
-                  Punched Out for Today
-                </div>
-              )}
-
-              {todayStatus.isOnLeave && (
-                <div className="px-5 py-2.5 bg-purple-500/20 border border-purple-400/40 rounded-xl text-purple-200 font-medium text-sm flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-purple-400" />
-                  On Approved Leave
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Today's 4 Summary Metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3.5">
-              <div className="text-xs text-slate-400 mb-1 font-medium">Clock In</div>
-              <div className="text-lg font-bold font-mono text-emerald-400">
-                {formatTimeString(todayStatus.checkIn)}
-              </div>
-            </div>
-
-            <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3.5">
-              <div className="text-xs text-slate-400 mb-1 font-medium">Clock Out</div>
-              <div className="text-lg font-bold font-mono text-blue-400">
-                {formatTimeString(todayStatus.checkOut)}
-              </div>
-            </div>
-
-            <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3.5">
-              <div className="text-xs text-slate-400 mb-1 font-medium">Working Hours</div>
-              <div className="text-lg font-bold font-mono text-white">
-                {todayStatus.workingHoursFormatted || '0h 00m'}
-              </div>
-            </div>
-
-            <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3.5">
-              <div className="text-xs text-slate-400 mb-1 font-medium">Overtime</div>
-              <div className="text-lg font-bold font-mono text-amber-400">
-                {todayStatus.overtimeHoursFormatted || '0h 00m'}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* My Attendance History Section */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              My Attendance History
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Review your monthly attendance logs, working durations, and correction statuses
-            </p>
-          </div>
-
-          <button
-            onClick={fetchAttendanceData}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+            {months.map((m) => (
+              <option key={m.value} value={m.value} className="dark:bg-slate-800">
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+            className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 py-1.5 px-2 focus:outline-none cursor-pointer border-l border-slate-200 dark:border-slate-700"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+            {years.map((y) => (
+              <option key={y} value={y} className="dark:bg-slate-800">
+                {y}
+              </option>
+            ))}
+          </select>
         </div>
-
-        {/* Filters Toolbar */}
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Month:</span>
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => {
-                setMonth(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Status:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
-            >
-              <option value="">All Statuses</option>
-              <option value="present">Present</option>
-              <option value="late">Late</option>
-              <option value="half_day">Half Day</option>
-              <option value="on_leave">On Leave</option>
-              <option value="missing_punch">Missing Punch</option>
-            </select>
-          </div>
-
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search by date or notes..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
-            />
-          </div>
-        </div>
-
-        {/* History Data Table */}
-        <DataTable
-          columns={columns}
-          data={history}
-          keyField="id"
-          loading={loading}
-          emptyMessage={`No personal attendance records found for ${month}.`}
-          pagination={{
-            page,
-            totalPages,
-            totalRecords,
-            onPageChange: (p) => setPage(p),
-          }}
-        />
       </div>
 
-      {/* Request Correction Modal */}
-      <CorrectionModal
-        isOpen={correctionModalOpen}
-        onClose={() => setCorrectionModalOpen(false)}
-        onSuccess={() => fetchAttendanceData()}
-      />
+      {error && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-300 text-xs flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-emerald-700 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Present</span>
+          </div>
+          <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100 mt-1">{summary.present}</p>
+          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Full Days Worked</span>
+        </div>
+
+        <div className="bg-rose-50 dark:bg-rose-950/30 p-3.5 rounded-xl border border-rose-200 dark:border-rose-900/50 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-rose-700 dark:text-rose-400 text-xs font-bold uppercase tracking-wider">
+            <XCircle className="w-3.5 h-3.5" />
+            <span>Absent</span>
+          </div>
+          <p className="text-2xl font-bold text-rose-900 dark:text-rose-100 mt-1">{summary.absent}</p>
+          <span className="text-[10px] text-rose-600 dark:text-rose-400">Loss of Pay Days</span>
+        </div>
+
+        <div className="bg-amber-50 dark:bg-amber-950/30 p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-amber-700 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Leave</span>
+          </div>
+          <p className="text-2xl font-bold text-amber-900 dark:text-amber-100 mt-1">{summary.leave}</p>
+          <span className="text-[10px] text-amber-600 dark:text-amber-400">Approved Leaves</span>
+        </div>
+
+        <div className="bg-purple-50 dark:bg-purple-950/30 p-3.5 rounded-xl border border-purple-200 dark:border-purple-900/50 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-purple-700 dark:text-purple-400 text-xs font-bold uppercase tracking-wider">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Half Day</span>
+          </div>
+          <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 mt-1">{summary.halfDay}</p>
+          <span className="text-[10px] text-purple-600 dark:text-purple-400">Half Shifts</span>
+        </div>
+
+        <div className="bg-blue-50 dark:bg-blue-950/30 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/50 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-blue-700 dark:text-blue-400 text-xs font-bold uppercase tracking-wider">
+            <Sun className="w-3.5 h-3.5" />
+            <span>Holiday</span>
+          </div>
+          <p className="text-2xl font-bold text-blue-900 dark:text-blue-100 mt-1">{summary.holiday}</p>
+          <span className="text-[10px] text-blue-600 dark:text-blue-400">Company Holidays</span>
+        </div>
+
+        <div className="bg-slate-100 dark:bg-slate-800 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Week Off</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-800 dark:text-slate-200 mt-1">{summary.weekOff}</p>
+          <span className="text-[10px] text-slate-500">Weekends</span>
+        </div>
+      </div>
+
+      {/* Calendar Day Cards Grid */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white mb-4">
+          Daily Breakdown for {months.find((m) => m.value === selectedMonth)?.label} {selectedYear}
+        </h2>
+
+        {loading ? (
+          <div className="p-12">
+            <LoadingState text="Loading your attendance records..." />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
+            {Array.from({ length: totalDays }, (_, i) => i + 1).map((day) => {
+              const dateObj = new Date(selectedYear, selectedMonth - 1, day);
+              const weekday = dateObj.toLocaleDateString('default', { weekday: 'short' });
+              const code = daysMap[day] || (dateObj.getDay() === 0 || dateObj.getDay() === 6 ? 'WO' : 'P');
+              const cfg = STATUS_CONFIG[code] || STATUS_CONFIG['P'];
+
+              return (
+                <div
+                  key={day}
+                  className={clsx(
+                    'p-3 rounded-lg border flex flex-col justify-between transition-all hover:shadow-sm',
+                    cfg.bg
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-bold text-slate-900 dark:text-white">{day}</span>
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase">{weekday}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className={clsx('text-xs font-bold', cfg.text)}>{cfg.full}</span>
+                    <span className={clsx('w-2 h-2 rounded-full', cfg.dotColor)} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

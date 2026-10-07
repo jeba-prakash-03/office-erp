@@ -856,3 +856,54 @@ export interface AuditLog {
   user_agent?: string | null;
   created_at?: string;
 }
+
+export interface Investment {
+  id: string;
+  name: string;
+  type: string;
+  amount: number;
+  date: string;
+  source?: string | null;
+  current_value: number;
+  return_rate?: number;
+  status: 'active' | 'matured' | 'divested' | 'pending';
+  notes?: string | null;
+  document_url?: string | null;
+  created_by_name?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SalaryComponent {
+  id: string;
+  name: string;
+  type: 'earning' | 'deduction';
+  calculation_type: 'fixed' | 'percentage';
+  percentage_of?: string | null;
+  default_value: number;
+  is_taxable: boolean | number;
+  is_statutory: boolean | number;
+  is_active: boolean | number;
+  description?: string | null;
+}
+
+export interface AttendanceSheetEmployee {
+  id: string;
+  employeeId: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  designation: string;
+  department: string;
+  days: Record<string, string>;
+  summary: {
+    present: number;
+    absent: number;
+    leave: number;
+    halfDay: number;
+    holiday: number;
+    weekOff: number;
+    totalWorkingDays: number;
+  };
+}
+

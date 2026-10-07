@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   login,
+  googleLogin,
   registerFirstAdmin,
   refreshToken,
   logout,
@@ -17,6 +18,8 @@ const router = Router();
 // Public auth endpoints
 router.post('/register-first-admin', registerFirstAdmin);
 router.post('/login', login);
+router.post('/google', googleLogin);
+router.post('/google-login', googleLogin);
 router.post('/refresh', refreshToken);
 
 // Authenticated auth endpoints

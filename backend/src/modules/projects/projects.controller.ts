@@ -52,13 +52,12 @@ export async function listProjects(req: Request, res: Response, next: NextFuncti
              pm.profile_photo as project_manager_photo,
              COUNT(DISTINCT t.id) as total_tasks,
              SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
-             COALESCE(SUM(exp.amount), 0) as total_expenses,
+             0 as total_expenses,
              COUNT(DISTINCT pmem.employee_id) as member_count
       FROM projects p
       LEFT JOIN clients c ON p.client_id = c.id
       LEFT JOIN employees pm ON p.project_manager_id = pm.id
       LEFT JOIN tasks t ON t.project_id = p.id
-      LEFT JOIN expenses exp ON exp.project_id = p.id
       LEFT JOIN project_members pmem ON pmem.project_id = p.id
       ${whereClause}
       GROUP BY p.id
@@ -144,13 +143,10 @@ export async function getProjectById(req: Request, res: Response, next: NextFunc
 
     // Expenses
     const expenses = await query<any[]>(
-      `SELECT exp.*, ec.name as category_name, CONCAT(u.first_name, ' ', u.last_name) as added_by_name
+      `SELECT exp.*, exp.category as category_name, CONCAT(u.first_name, ' ', u.last_name) as added_by_name
        FROM expenses exp
-       JOIN expense_categories ec ON exp.category_id = ec.id
-       JOIN users u ON exp.added_by_user_id = u.id
-       WHERE exp.project_id = ?
-       ORDER BY exp.date DESC`,
-      [id]
+       LEFT JOIN users u ON exp.created_by_user_id = u.id
+       ORDER BY exp.date DESC LIMIT 20`
     );
 
     // Files / Documents
@@ -177,18 +173,21 @@ export async function getProjectById(req: Request, res: Response, next: NextFunc
 
 export async function createProject(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      projectCode, name, clientId, description, projectManagerId,
-      startDate, endDate, budget, status, priority, technology,
-      repositoryUrl, productionUrl, notes, memberIds
-    } = req.body;
+    const projectCode = req.body.projectCode || req.body.project_code || `PRJ-${Math.floor(1000 + Math.random() * 9000)}`;
+    const name = req.body.name || req.body.projectName || req.body.title;
+    const clientId = req.body.clientId || req.body.client_id || null;
+    const description = req.body.description || null;
+    const projectManagerId = req.body.projectManagerId || req.body.project_manager_id || null;
+    const startDate = req.body.startDate || req.body.start_date || new Date().toISOString().split('T')[0];
+    const endDate = req.body.endDate || req.body.end_date || req.body.deadline || null;
+    const budget = req.body.budget || 0.00;
+    const status = req.body.status || 'planning';
+    const priority = req.body.priority || 'medium';
+    const memberIds = req.body.memberIds || req.body.member_ids || [];
 
-    if (!projectCode || !name || !startDate) {
-      throw new AppError('Project Code, Name, and Start Date are required', 400);
+    if (!name) {
+      throw new AppError('Project Name is required', 400);
     }
-
-    const existing = await query<any[]>('SELECT id FROM projects WHERE project_code = ?', [projectCode.trim()]);
-    if (existing.length > 0) throw new AppError('Project with this code already exists', 409);
 
     const projectId = `proj-${uuidv4()}`;
 
@@ -196,14 +195,12 @@ export async function createProject(req: Request, res: Response, next: NextFunct
       await conn.query(
         `INSERT INTO projects (
           id, project_code, name, client_id, description, project_manager_id,
-          start_date, end_date, budget, status, priority, technology,
-          repository_url, production_url, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          start_date, end_date, budget, status, priority, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           projectId, projectCode.trim(), name.trim(), clientId || null, description || null,
           projectManagerId || null, startDate, endDate || null, budget || 0.00,
-          status || 'planning', priority || 'medium', technology || null,
-          repositoryUrl || null, productionUrl || null, notes || null
+          status || 'planning', priority || 'medium'
         ]
       );
 
@@ -252,8 +249,7 @@ export async function updateProject(req: Request, res: Response, next: NextFunct
     const { id } = req.params;
     const {
       name, clientId, description, projectManagerId,
-      startDate, endDate, budget, status, priority, technology,
-      repositoryUrl, productionUrl, notes, memberIds
+      startDate, endDate, budget, status, priority
     } = req.body;
 
     const existing = await query<any[]>('SELECT * FROM projects WHERE id = ?', [id]);
@@ -270,16 +266,11 @@ export async function updateProject(req: Request, res: Response, next: NextFunct
              end_date = ?,
              budget = COALESCE(?, budget),
              status = COALESCE(?, status),
-             priority = COALESCE(?, priority),
-             technology = COALESCE(?, technology),
-             repository_url = COALESCE(?, repository_url),
-             production_url = COALESCE(?, production_url),
-             notes = COALESCE(?, notes)
+             priority = COALESCE(?, priority)
          WHERE id = ?`,
         [
           name, clientId || null, description, projectManagerId || null,
-          startDate, endDate || null, budget, status, priority, technology,
-          repositoryUrl, productionUrl, notes, id
+          startDate, endDate || null, budget, status, priority, id
         ]
       );
 

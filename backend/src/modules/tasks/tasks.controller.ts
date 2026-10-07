@@ -61,15 +61,12 @@ export async function listTasks(req: Request, res: Response, next: NextFunction)
              CONCAT(e.first_name, ' ', e.last_name) as assigned_employee_name,
              e.profile_photo as assigned_employee_photo,
              CONCAT(cu.first_name, ' ', cu.last_name) as created_by_name,
-             COUNT(DISTINCT tc.id) as comment_count,
-             COUNT(DISTINCT chk.id) as checklist_total,
-             SUM(CASE WHEN chk.is_completed = 1 THEN 1 ELSE 0 END) as checklist_completed
+             COUNT(DISTINCT tc.id) as comment_count
       FROM tasks t
       JOIN projects p ON t.project_id = p.id
       LEFT JOIN employees e ON t.assigned_employee_id = e.id
       LEFT JOIN users cu ON t.created_by_user_id = cu.id
       LEFT JOIN task_comments tc ON tc.task_id = t.id
-      LEFT JOIN task_checklists chk ON chk.task_id = t.id
       ${whereClause}
       GROUP BY t.id
       ORDER BY t.created_at DESC
@@ -113,14 +110,11 @@ export async function getKanbanTasks(req: Request, res: Response, next: NextFunc
               p.name as project_name,
               CONCAT(e.first_name, ' ', e.last_name) as assigned_employee_name,
               e.profile_photo as assigned_employee_photo,
-              COUNT(DISTINCT tc.id) as comment_count,
-              COUNT(DISTINCT chk.id) as checklist_total,
-              SUM(CASE WHEN chk.is_completed = 1 THEN 1 ELSE 0 END) as checklist_completed
+              COUNT(DISTINCT tc.id) as comment_count
        FROM tasks t
        JOIN projects p ON t.project_id = p.id
        LEFT JOIN employees e ON t.assigned_employee_id = e.id
        LEFT JOIN task_comments tc ON tc.task_id = t.id
-       LEFT JOIN task_checklists chk ON chk.task_id = t.id
        ${whereClause}
        GROUP BY t.id
        ORDER BY t.created_at DESC`,
@@ -209,49 +203,37 @@ export async function getTaskById(req: Request, res: Response, next: NextFunctio
 
 export async function createTask(req: Request, res: Response, next: NextFunction) {
   try {
-    const {
-      taskCode, title, description, projectId, assignedEmployeeId,
-      priority, status, dueDate, estimatedHours, checklists
-    } = req.body;
+    const taskCode = req.body.taskCode || req.body.task_code || `TSK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const title = req.body.title || req.body.name || req.body.taskName;
+    const description = req.body.description;
+    const projectId = req.body.projectId || req.body.project_id;
+    const assignedEmployeeId = req.body.assignedEmployeeId || req.body.assigned_employee_id || req.body.employeeId;
+    const priority = req.body.priority || 'medium';
+    const status = req.body.status || 'todo';
+    const dueDate = req.body.dueDate || req.body.due_date || req.body.deadline;
+    const estimatedHours = req.body.estimatedHours || req.body.estimated_hours || 0.00;
+    const checklists = req.body.checklists;
 
     if (!title || !projectId) {
       throw new AppError('Task title and project are required', 400);
     }
 
-    const code = taskCode || `TSK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const code = taskCode;
     const taskId = `task-${uuidv4()}`;
-
-    // Get client ID from project
-    const projRows = await query<any[]>('SELECT client_id FROM projects WHERE id = ?', [projectId]);
-    const clientId = projRows[0]?.client_id || null;
 
     await withTransaction(async (conn) => {
       await conn.query(
         `INSERT INTO tasks (
-          id, task_code, title, description, project_id, client_id,
+          id, task_code, title, description, project_id,
           assigned_employee_id, created_by_user_id, priority, status,
           due_date, estimated_hours, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          taskId, code, title.trim(), description || null, projectId, clientId,
+          taskId, code, title.trim(), description || null, projectId,
           assignedEmployeeId || null, req.user?.id || null, priority || 'medium',
           status || 'todo', dueDate || null, estimatedHours || 0.00
         ]
       );
-
-      // Add Checklists if provided
-      if (Array.isArray(checklists)) {
-        for (let i = 0; i < checklists.length; i++) {
-          const item = checklists[i];
-          if (item && item.title) {
-            await conn.query(
-              `INSERT INTO task_checklists (id, task_id, title, is_completed, sort_order, created_at)
-               VALUES (?, ?, ?, 0, ?, NOW())`,
-              [uuidv4(), taskId, item.title, i]
-            );
-          }
-        }
-      }
 
       // If assigned, create a notification for that employee's user
       if (assignedEmployeeId) {

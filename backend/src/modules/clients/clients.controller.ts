@@ -36,12 +36,10 @@ export async function listClients(req: Request, res: Response, next: NextFunctio
 
     const dataSql = `
       SELECT c.*, 
-             CONCAT(e.first_name, ' ', e.last_name) as sales_rep_name,
              COUNT(DISTINCT p.id) as project_count,
              COALESCE(SUM(inv.grand_total), 0) as total_invoiced,
              COALESCE(SUM(inv.paid_amount), 0) as total_paid
       FROM clients c
-      LEFT JOIN employees e ON c.assigned_sales_rep_id = e.id
       LEFT JOIN projects p ON p.client_id = c.id
       LEFT JOIN invoices inv ON inv.client_id = c.id
       ${whereClause}
@@ -77,12 +75,7 @@ export async function getClientById(req: Request, res: Response, next: NextFunct
     }
 
     const clients = await query<any[]>(
-      `SELECT c.*, 
-              CONCAT(e.first_name, ' ', e.last_name) as sales_rep_name,
-              e.email as sales_rep_email
-       FROM clients c
-       LEFT JOIN employees e ON c.assigned_sales_rep_id = e.id
-       WHERE c.id = ?`,
+      `SELECT c.* FROM clients c WHERE c.id = ?`,
       [id]
     );
 
@@ -91,22 +84,20 @@ export async function getClientById(req: Request, res: Response, next: NextFunct
     const client = clients[0];
 
     // Additional tabs:
-    // 1. Contacts
-    const contacts = await query<any[]>('SELECT * FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name ASC', [id]);
-    // 2. Projects
+    // 1. Projects
     const projects = await query<any[]>('SELECT * FROM projects WHERE client_id = ? ORDER BY created_at DESC', [id]);
-    // 3. Invoices
+    // 2. Invoices
     const invoices = await query<any[]>('SELECT * FROM invoices WHERE client_id = ? ORDER BY invoice_date DESC', [id]);
-    // 4. Payments
+    // 3. Payments
     const payments = await query<any[]>('SELECT * FROM payments WHERE client_id = ? ORDER BY payment_date DESC', [id]);
-    // 5. Documents
+    // 4. Documents
     const documents = await query<any[]>("SELECT * FROM documents WHERE entity_type = 'client' AND entity_id = ? ORDER BY created_at DESC", [id]);
 
     res.json({
       success: true,
       data: {
         ...client,
-        contacts,
+        contacts: [{ name: client.contact_person, email: client.email, phone: client.phone, is_primary: true }],
         projects,
         invoices,
         payments,
@@ -125,15 +116,10 @@ export async function createClient(req: Request, res: Response, next: NextFuncti
     const email = req.body.email;
     const clientCode = req.body.clientCode || req.body.client_code || `CLI-${Math.floor(1000 + Math.random() * 9000)}`;
     const phone = req.body.phone;
-    const website = req.body.website;
     const address = req.body.address;
     const industry = req.body.industry;
-    const gstNumber = req.body.gstNumber || req.body.gst_number;
-    const taxNumber = req.body.taxNumber || req.body.tax_number;
     const status = req.body.status || 'active';
-    const assignedSalesRepId = req.body.assignedSalesRepId || req.body.assigned_sales_rep_id || null;
     const notes = req.body.notes;
-    const contacts = req.body.contacts;
 
     if (!companyName || !email) {
       throw new AppError('Company Name and Email are required', 400);
@@ -141,7 +127,6 @@ export async function createClient(req: Request, res: Response, next: NextFuncti
 
     const existing = await query<any[]>('SELECT id FROM clients WHERE client_code = ?', [clientCode.trim()]);
     if (existing.length > 0) {
-      // If code was auto-generated and collided, generate with uuid suffix
       const altCode = `CLI-${uuidv4().substring(0, 6).toUpperCase()}`;
       req.body.clientCode = altCode;
     }
@@ -149,39 +134,16 @@ export async function createClient(req: Request, res: Response, next: NextFuncti
     const finalClientCode = req.body.clientCode || clientCode;
     const clientId = `client-${uuidv4()}`;
 
-    await withTransaction(async (conn) => {
-      await conn.query(
-        `INSERT INTO clients (
-          id, client_code, company_name, contact_person, email, phone, website,
-          address, industry, gst_number, tax_number, status, assigned_sales_rep_id, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [
-          clientId, finalClientCode.trim(), companyName.trim(), contactPerson.trim(), email.trim(),
-          phone || null, website || null, address || null, industry || null,
-          gstNumber || null, taxNumber || null, status || 'active', assignedSalesRepId || null, notes || null
-        ]
-      );
-
-      // Primary contact
-      await conn.query(
-        `INSERT INTO client_contacts (id, client_id, name, email, phone, is_primary, created_at)
-         VALUES (?, ?, ?, ?, ?, 1, NOW())`,
-        [`cont-${uuidv4()}`, clientId, contactPerson.trim(), email.trim(), phone || null]
-      );
-
-      // Additional contacts if any
-      if (Array.isArray(contacts)) {
-        for (const c of contacts) {
-          if (c.name) {
-            await conn.query(
-              `INSERT INTO client_contacts (id, client_id, name, email, phone, designation, is_primary, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, 0, NOW())`,
-              [uuidv4(), clientId, c.name, c.email || null, c.phone || null, c.designation || null]
-            );
-          }
-        }
-      }
-    });
+    await query(
+      `INSERT INTO clients (
+        id, client_code, company_name, contact_person, email, phone,
+        address, industry, status, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        clientId, finalClientCode.trim(), companyName.trim(), contactPerson.trim(), email.trim(),
+        phone || null, address || null, industry || null, status || 'active', notes || null
+      ]
+    );
 
     await logAudit({
       userId: req.user?.id,
@@ -204,8 +166,8 @@ export async function updateClient(req: Request, res: Response, next: NextFuncti
   try {
     const { id } = req.params;
     const {
-      companyName, contactPerson, email, phone, website, address,
-      industry, gstNumber, taxNumber, status, assignedSalesRepId, notes
+      companyName, contactPerson, email, phone, address,
+      industry, status, notes
     } = req.body;
 
     const existing = await query<any[]>('SELECT * FROM clients WHERE id = ?', [id]);
@@ -217,18 +179,14 @@ export async function updateClient(req: Request, res: Response, next: NextFuncti
            contact_person = COALESCE(?, contact_person),
            email = COALESCE(?, email),
            phone = COALESCE(?, phone),
-           website = COALESCE(?, website),
            address = COALESCE(?, address),
            industry = COALESCE(?, industry),
-           gst_number = COALESCE(?, gst_number),
-           tax_number = COALESCE(?, tax_number),
            status = COALESCE(?, status),
-           assigned_sales_rep_id = ?,
            notes = COALESCE(?, notes)
        WHERE id = ?`,
       [
-        companyName, contactPerson, email, phone, website, address,
-        industry, gstNumber, taxNumber, status, assignedSalesRepId || null, notes, id
+        companyName, contactPerson, email, phone, address,
+        industry, status, notes, id
       ]
     );
 

@@ -12,7 +12,13 @@ export function requirePermission(...permissions: string[]) {
       return next();
     }
 
-    const hasAll = permissions.every((perm) => req.user!.permissions.includes(perm));
+    const userPerms = req.user.permissions || [];
+    const hasAll = permissions.every((perm) => {
+      if (userPerms.includes(perm)) return true;
+      const [module] = perm.split('.');
+      if (userPerms.includes(`${module}.manage`)) return true;
+      return false;
+    });
 
     if (!hasAll) {
       return next(
@@ -37,7 +43,13 @@ export function requireAnyPermission(...permissions: string[]) {
       return next();
     }
 
-    const hasAny = permissions.some((perm) => req.user!.permissions.includes(perm));
+    const userPerms = req.user.permissions || [];
+    const hasAny = permissions.some((perm) => {
+      if (userPerms.includes(perm)) return true;
+      const [module] = perm.split('.');
+      if (userPerms.includes(`${module}.manage`)) return true;
+      return false;
+    });
 
     if (!hasAny) {
       return next(
@@ -49,7 +61,8 @@ export function requireAnyPermission(...permissions: string[]) {
   };
 }
 
-export function requireRole(...roles: string[]) {
+export function requireRole(...roles: (string | string[])[]) {
+  const flattenedRoles = roles.flat();
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new AppError('Unauthorized. Authentication required.', 401));
@@ -59,9 +72,9 @@ export function requireRole(...roles: string[]) {
       return next();
     }
 
-    if (!roles.includes(req.user.roleName)) {
+    if (!flattenedRoles.includes(req.user.roleName)) {
       return next(
-        new AppError(`Forbidden: Access restricted to roles [${roles.join(', ')}].`, 403)
+        new AppError(`Forbidden: Access restricted to roles [${flattenedRoles.join(', ')}].`, 403)
       );
     }
 

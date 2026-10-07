@@ -25,7 +25,6 @@ import { MyAttendancePage } from './pages/attendance/MyAttendancePage';
 import { LeaveList } from './pages/leave/LeaveList';
 import { ApprovalsHub } from './pages/approvals/ApprovalsHub';
 
-
 import { PayrollList } from './pages/payroll/PayrollList';
 import { PayslipView } from './pages/payroll/PayslipView';
 import { LoansList } from './pages/loans/LoansList';
@@ -35,6 +34,7 @@ import { FinanceList } from './pages/finance/FinanceList';
 import { InvoicesList } from './pages/invoices/InvoicesList';
 import { InvoiceDetails } from './pages/invoices/InvoiceDetails';
 import { PaymentsList } from './pages/payments/PaymentsList';
+import { InvestmentsList } from './pages/investments/InvestmentsList';
 import { AssetsList } from './pages/assets/AssetsList';
 import { DocumentsList } from './pages/documents/DocumentsList';
 import { AnnouncementsList } from './pages/announcements/AnnouncementsList';
@@ -46,8 +46,6 @@ import { RolesList } from './pages/roles/RolesList';
 import { UsersList } from './pages/users/UsersList';
 import { SettingsView } from './pages/settings/SettingsView';
 import { ProfileView } from './pages/profile/ProfileView';
-import { ClientPortal } from './pages/portal/ClientPortal';
-import { EmployeePortal } from './pages/portal/EmployeePortal';
 
 // Protected Route Guard
 const ProtectedRoute: React.FC<{ children: React.ReactNode; permission?: string; role?: string }> = ({
@@ -76,7 +74,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; permission?: string;
     );
   }
 
-  if (role && user?.role !== role && user?.role !== 'super_admin') {
+  if (role && user?.roleName !== role && user?.roleName !== 'super_admin') {
     return (
       <div className="p-8 text-center bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-900 my-8">
         <h2 className="text-lg font-bold text-red-600 mb-1">Access Restricted</h2>
@@ -130,18 +128,18 @@ export const App: React.FC = () => {
         <Route path="leave" element={<LeaveList />} />
         <Route path="timesheets" element={<TimesheetsList />} />
 
-
         {/* Payroll & Disbursal */}
         <Route path="payroll" element={<PayrollList />} />
         <Route path="payroll/payslip/:id" element={<PayslipView />} />
         <Route path="loans" element={<LoansList />} />
         <Route path="performance" element={<PerformanceList />} />
 
-        {/* Finance & Invoicing */}
+        {/* Finance, Invoicing & Investments */}
         <Route path="finance" element={<FinanceList />} />
         <Route path="invoices" element={<InvoicesList />} />
         <Route path="invoices/:id" element={<InvoiceDetails />} />
         <Route path="payments" element={<PaymentsList />} />
+        <Route path="investments" element={<InvestmentsList />} />
 
         {/* Assets & Knowledge */}
         <Route path="assets" element={<AssetsList />} />
@@ -157,10 +155,6 @@ export const App: React.FC = () => {
         <Route path="users" element={<UsersList />} />
         <Route path="settings" element={<SettingsView />} />
         <Route path="profile" element={<ProfileView />} />
-
-        {/* Portals */}
-        <Route path="portal/client" element={<ClientPortal />} />
-        <Route path="portal/employee" element={<EmployeePortal />} />
       </Route>
 
       {/* Catch-all redirect */}

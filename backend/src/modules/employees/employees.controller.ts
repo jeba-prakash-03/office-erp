@@ -66,10 +66,6 @@ export async function listEmployees(req: Request, res: Response, next: NextFunct
       whereClause += ' AND e.designation LIKE ?';
       params.push(`%${designation}%`);
     }
-    if (managerId) {
-      whereClause += ' AND e.reporting_manager_id = ?';
-      params.push(managerId);
-    }
 
     const countRows = await query<any[]>(
       `SELECT COUNT(*) as total FROM employees e LEFT JOIN departments d ON e.department_id = d.id ${whereClause}`,
@@ -81,12 +77,10 @@ export async function listEmployees(req: Request, res: Response, next: NextFunct
       SELECT e.*, 
              d.name as department_name,
              r.name as role_name, r.display_name as role_display_name,
-             CONCAT(m.first_name, ' ', m.last_name) as reporting_manager_name,
              u.status as user_account_status
       FROM employees e
       LEFT JOIN departments d ON e.department_id = d.id
       LEFT JOIN roles r ON e.role_id = r.id
-      LEFT JOIN employees m ON e.reporting_manager_id = m.id
       LEFT JOIN users u ON e.user_id = u.id
       ${whereClause}
       ORDER BY e.created_at DESC
@@ -118,13 +112,10 @@ export async function getEmployeeById(req: Request, res: Response, next: NextFun
       `SELECT e.*, 
               d.name as department_name,
               r.name as role_name, r.display_name as role_display_name,
-              CONCAT(m.first_name, ' ', m.last_name) as reporting_manager_name,
-              m.email as reporting_manager_email,
               u.status as user_account_status
        FROM employees e
        LEFT JOIN departments d ON e.department_id = d.id
        LEFT JOIN roles r ON e.role_id = r.id
-       LEFT JOIN employees m ON e.reporting_manager_id = m.id
        LEFT JOIN users u ON e.user_id = u.id
        WHERE (e.id = ? OR e.user_id = ?) AND e.deleted_at IS NULL`,
       [id, id]
@@ -273,8 +264,8 @@ export async function createEmployee(req: Request, res: Response, next: NextFunc
     const skills = req.body.skills;
     const experienceYears = req.body.experienceYears || req.body.experience_years || 0;
     const notes = req.body.notes;
-    const createUserAccount = req.body.createUserAccount !== undefined ? req.body.createUserAccount : true;
-    const password = req.body.password;
+    const createUserAccount = req.body.createUserAccount !== undefined ? req.body.createUserAccount : (req.body.createLoginAccount !== undefined ? req.body.createLoginAccount : true);
+    const password = req.body.password || req.body.loginPassword;
 
     if (!employeeId || !firstName || !lastName || !email || !designation || !joiningDate) {
       throw new AppError('Employee ID, First Name, Last Name, Email, Designation, and Joining Date are required', 400);
@@ -321,16 +312,16 @@ export async function createEmployee(req: Request, res: Response, next: NextFunc
           id, user_id, employee_id, first_name, last_name, email, phone, date_of_birth,
           gender, profile_photo, address, emergency_contact_name, emergency_contact_phone,
           emergency_contact_relation, department_id, designation, role_id, joining_date,
-          employment_type, employment_status, reporting_manager_id, basic_salary,
-          bank_name, bank_account_number, bank_ifsc, pan_number, identity_number,
-          tax_id, skills, experience_years, notes, created_at
+          employment_type, employment_status, basic_salary,
+          bank_name, bank_account_number, bank_ifsc, pan_number,
+          skills, experience_years, notes, created_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
+          ?, ?, ?,
           ?, ?, ?, ?,
-          ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, NOW()
+          ?, ?, ?, NOW()
         )`,
         [
           newEmpId, createdUserId, employeeId.trim(), firstName.trim(), lastName.trim(),
@@ -338,30 +329,39 @@ export async function createEmployee(req: Request, res: Response, next: NextFunc
           gender || 'undisclosed', profilePhoto || null, address || null,
           emergencyContactName || null, emergencyContactPhone || null, emergencyContactRelation || null,
           departmentId || null, designation.trim(), roleId || 'role-employee', joiningDate,
-          employmentType || 'full_time', employmentStatus || 'active', reportingManagerId || null,
+          employmentType || 'full_time', employmentStatus || 'active',
           basicSalary || 0.00, bankName || null, bankAccountNumber || null, bankIfsc || null,
-          panNumber || null, identityNumber || null, taxId || null, skills || null,
+          panNumber || null, skills || null,
           experienceYears || 0.0, notes || null
         ]
       );
 
-      // Create initial salary structure
+      // Create initial salary structure assignments
       const parsedBasic = parseFloat(basicSalary || '0');
-      const hra = parsedBasic * 0.4;
-      const pf = parsedBasic * 0.12;
-      const pt = 200.00;
+      const [compRows] = await conn.query('SELECT * FROM salary_components WHERE is_active = 1');
+      const comps = compRows as any[];
 
-      await conn.query(
-        `INSERT INTO salary_structures (
-          id, employee_id, basic_salary, hra, special_allowance, medical_allowance,
-          conveyance_allowance, provident_fund, esi, professional_tax, income_tax_tds, created_at
-        ) VALUES (?, ?, ?, ?, 0, 0, 0, ?, 0, ?, 0, NOW())`,
-        [`sal-str-${uuidv4()}`, newEmpId, parsedBasic, hra, pf, pt]
-      );
+      for (const comp of comps) {
+        let compAmt = 0;
+        let compPerc = 0;
+        if (comp.name === 'Basic Salary' || comp.name.toLowerCase().includes('basic')) {
+          compAmt = parsedBasic;
+        } else if (comp.calculation_type === 'percentage') {
+          compPerc = Number(comp.default_value || 0);
+        } else {
+          compAmt = Number(comp.default_value || 0);
+        }
+
+        await conn.query(
+          `INSERT INTO employee_salary_structures (id, employee_id, component_id, amount, percentage, is_active)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          [`ess-${newEmpId}-${comp.id}`, newEmpId, comp.id, compAmt, compPerc]
+        );
+      }
 
       // Allocate initial leave balances for the year
       const currentYear = new Date().getFullYear();
-      const [leaveTypeRows] = await conn.query('SELECT * FROM leave_types');
+      const [leaveTypeRows] = await conn.query('SELECT * FROM leave_types WHERE is_active = 1');
       const types = leaveTypeRows as any[];
 
       for (const lt of types) {
@@ -413,14 +413,11 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
     const joiningDate = req.body.joiningDate !== undefined ? req.body.joiningDate : req.body.joining_date;
     const employmentType = req.body.employmentType !== undefined ? req.body.employmentType : req.body.employment_type;
     const employmentStatus = req.body.employmentStatus !== undefined ? req.body.employmentStatus : (req.body.employment_status !== undefined ? req.body.employment_status : req.body.status);
-    const reportingManagerId = req.body.reportingManagerId !== undefined ? req.body.reportingManagerId : req.body.reporting_manager_id;
     const basicSalary = req.body.basicSalary !== undefined ? req.body.basicSalary : (req.body.basic_salary !== undefined ? req.body.basic_salary : req.body.salary);
     const bankName = req.body.bankName !== undefined ? req.body.bankName : req.body.bank_name;
     const bankAccountNumber = req.body.bankAccountNumber !== undefined ? req.body.bankAccountNumber : req.body.bank_account_number;
     const bankIfsc = req.body.bankIfsc !== undefined ? req.body.bankIfsc : req.body.bank_ifsc;
     const panNumber = req.body.panNumber !== undefined ? req.body.panNumber : req.body.pan_number;
-    const identityNumber = req.body.identityNumber !== undefined ? req.body.identityNumber : req.body.identity_number;
-    const taxId = req.body.taxId !== undefined ? req.body.taxId : req.body.tax_id;
     const skills = req.body.skills !== undefined ? req.body.skills : undefined;
     const experienceYears = req.body.experienceYears !== undefined ? req.body.experienceYears : req.body.experience_years;
     const notes = req.body.notes !== undefined ? req.body.notes : undefined;
@@ -430,7 +427,6 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
     if (existing.length === 0) throw new AppError('Employee not found', 404);
 
     const targetDeptId = departmentId !== undefined ? (departmentId === '' || departmentId === 'null' ? null : departmentId) : existing[0].department_id;
-    const targetManagerId = reportingManagerId !== undefined ? (reportingManagerId === '' || reportingManagerId === 'null' ? null : reportingManagerId) : existing[0].reporting_manager_id;
 
     await withTransaction(async (conn) => {
       await conn.query(
@@ -451,14 +447,11 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
              joining_date = COALESCE(?, joining_date),
              employment_type = COALESCE(?, employment_type),
              employment_status = COALESCE(?, employment_status),
-             reporting_manager_id = ?,
              basic_salary = COALESCE(?, basic_salary),
              bank_name = COALESCE(?, bank_name),
              bank_account_number = COALESCE(?, bank_account_number),
              bank_ifsc = COALESCE(?, bank_ifsc),
              pan_number = COALESCE(?, pan_number),
-             identity_number = COALESCE(?, identity_number),
-             tax_id = COALESCE(?, tax_id),
              skills = COALESCE(?, skills),
              experience_years = COALESCE(?, experience_years),
              notes = COALESCE(?, notes)
@@ -467,8 +460,8 @@ export async function updateEmployee(req: Request, res: Response, next: NextFunc
           firstName, lastName, phone, dateOfBirth, gender, profilePhoto, address,
           emergencyContactName, emergencyContactPhone, emergencyContactRelation,
           targetDeptId, designation, roleId, joiningDate, employmentType, employmentStatus,
-          targetManagerId, basicSalary, bankName, bankAccountNumber, bankIfsc,
-          panNumber, identityNumber, taxId, skills, experienceYears, notes, id
+          basicSalary, bankName, bankAccountNumber, bankIfsc,
+          panNumber, skills, experienceYears, notes, id
         ]
       );
 

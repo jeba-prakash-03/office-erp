@@ -30,18 +30,14 @@ export async function listIncomes(req: Request, res: Response, next: NextFunctio
       params.push(startDate, endDate);
     }
 
-    const countRows = await query<any[]>(`SELECT COUNT(*) as total FROM incomes inc ${whereClause}`, params);
+    const countRows = await query<any[]>(`SELECT COUNT(*) as total FROM income inc ${whereClause}`, params);
     const total = countRows[0]?.total || 0;
 
     const dataSql = `
       SELECT inc.*, 
-             c.company_name as client_name,
-             p.name as project_name,
-             inv.invoice_number
-      FROM incomes inc
+             c.company_name as client_name
+      FROM income inc
       LEFT JOIN clients c ON inc.client_id = c.id
-      LEFT JOIN projects p ON inc.project_id = p.id
-      LEFT JOIN invoices inv ON inc.invoice_id = inv.id
       ${whereClause}
       ORDER BY inc.date DESC, inc.created_at DESC
       LIMIT ? OFFSET ?
@@ -66,24 +62,25 @@ export async function listIncomes(req: Request, res: Response, next: NextFunctio
 
 export async function createIncome(req: Request, res: Response, next: NextFunction) {
   try {
-    const { incomeCode, clientId, invoiceId, projectId, category, amount, date, paymentMethod, referenceNumber, description } = req.body;
+    const { incomeCode, clientId, category, amount, date, paymentMethod, payment_method, reference, referenceNumber, description, notes } = req.body;
 
-    if (!amount || !date || !paymentMethod) {
-      throw new AppError('Amount, date, and payment method are required', 400);
+    const method = paymentMethod || payment_method || 'bank_transfer';
+    if (!amount || !date) {
+      throw new AppError('Amount and date are required', 400);
     }
 
     const code = incomeCode || `INC-${Math.floor(1000 + Math.random() * 9000)}`;
     const incomeId = `inc-${uuidv4()}`;
 
     await query(
-      `INSERT INTO incomes (
-        id, income_code, client_id, invoice_id, project_id, category,
-        amount, date, payment_method, reference_number, description, created_at
+      `INSERT INTO income (
+        id, income_code, category, description, client_id,
+        amount, payment_method, reference, notes, date, created_by_user_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
-        incomeId, code, clientId || null, invoiceId || null, projectId || null,
-        category || 'service_revenue', parseFloat(amount), date, paymentMethod,
-        referenceNumber || null, description || null
+        incomeId, code, category || 'Service Revenue', description || category || 'Income',
+        clientId || null, parseFloat(amount), method, reference || referenceNumber || null,
+        notes || null, date, req.user?.id || null
       ]
     );
 
@@ -106,7 +103,15 @@ export async function createIncome(req: Request, res: Response, next: NextFuncti
 
 export async function listExpenseCategories(req: Request, res: Response, next: NextFunction) {
   try {
-    const categories = await query<any[]>('SELECT * FROM expense_categories ORDER BY name ASC');
+    const categories = [
+      { id: 'cat-office', name: 'Office Supplies & Equipment' },
+      { id: 'cat-software', name: 'Software & Subscriptions' },
+      { id: 'cat-utilities', name: 'Rent & Utilities' },
+      { id: 'cat-travel', name: 'Travel & Meals' },
+      { id: 'cat-legal', name: 'Legal & Professional Services' },
+      { id: 'cat-marketing', name: 'Marketing & Advertising' },
+      { id: 'cat-other', name: 'Miscellaneous Expenses' },
+    ];
     res.json({ success: true, data: categories });
   } catch (error) {
     next(error);
@@ -115,16 +120,10 @@ export async function listExpenseCategories(req: Request, res: Response, next: N
 
 export async function createExpenseCategory(req: Request, res: Response, next: NextFunction) {
   try {
-    const { name, description } = req.body;
+    const { name } = req.body;
     if (!name) throw new AppError('Category name is required', 400);
-
     const id = `exp-cat-${uuidv4()}`;
-    await query(
-      'INSERT INTO expense_categories (id, name, description, created_at) VALUES (?, ?, ?, NOW())',
-      [id, name.trim(), description || null]
-    );
-
-    res.status(201).json({ success: true, message: 'Expense category created', data: { id } });
+    res.status(201).json({ success: true, message: 'Expense category created', data: { id, name } });
   } catch (error) {
     next(error);
   }
@@ -134,9 +133,7 @@ export async function listExpenses(req: Request, res: Response, next: NextFuncti
   try {
     const page = parseInt(req.query.page as string || '1', 10);
     const limit = parseInt(req.query.limit as string || '20', 10);
-    const categoryId = req.query.categoryId as string || '';
-    const projectId = req.query.projectId as string || '';
-    const status = req.query.status as string || '';
+    const category = req.query.category as string || req.query.categoryId as string || '';
     const startDate = req.query.startDate as string || '';
     const endDate = req.query.endDate as string || '';
     const offset = (page - 1) * limit;
@@ -144,17 +141,9 @@ export async function listExpenses(req: Request, res: Response, next: NextFuncti
     let whereClause = 'WHERE 1=1';
     const params: any[] = [];
 
-    if (categoryId) {
-      whereClause += ' AND exp.category_id = ?';
-      params.push(categoryId);
-    }
-    if (projectId) {
-      whereClause += ' AND exp.project_id = ?';
-      params.push(projectId);
-    }
-    if (status) {
-      whereClause += ' AND exp.status = ?';
-      params.push(status);
+    if (category) {
+      whereClause += ' AND exp.category = ?';
+      params.push(category);
     }
     if (startDate && endDate) {
       whereClause += ' AND exp.date BETWEEN ? AND ?';
@@ -166,15 +155,10 @@ export async function listExpenses(req: Request, res: Response, next: NextFuncti
 
     const dataSql = `
       SELECT exp.*, 
-             ec.name as category_name,
-             p.name as project_name,
-             CONCAT(u.first_name, ' ', u.last_name) as added_by_name,
-             CONCAT(au.first_name, ' ', au.last_name) as approved_by_name
+             exp.category as category_name,
+             CONCAT(u.first_name, ' ', u.last_name) as added_by_name
       FROM expenses exp
-      JOIN expense_categories ec ON exp.category_id = ec.id
-      LEFT JOIN projects p ON exp.project_id = p.id
-      JOIN users u ON exp.added_by_user_id = u.id
-      LEFT JOIN users au ON exp.approved_by_user_id = au.id
+      LEFT JOIN users u ON exp.created_by_user_id = u.id
       ${whereClause}
       ORDER BY exp.date DESC, exp.created_at DESC
       LIMIT ? OFFSET ?
@@ -199,11 +183,14 @@ export async function listExpenses(req: Request, res: Response, next: NextFuncti
 
 export async function createExpense(req: Request, res: Response, next: NextFunction) {
   try {
-    const { expenseCode, categoryId, projectId, amount, date, vendor, paymentMethod, description } = req.body;
+    const { expenseCode, category, categoryId, amount, date, vendor, paymentMethod, payment_method, reference, description, notes } = req.body;
     const file = req.file;
 
-    if (!categoryId || !amount || !date || !paymentMethod) {
-      throw new AppError('Category, amount, date, and payment method are required', 400);
+    const method = paymentMethod || payment_method || 'bank_transfer';
+    const targetCat = category || categoryId || 'Operational';
+
+    if (!amount || !date) {
+      throw new AppError('Amount and date are required', 400);
     }
 
     const code = expenseCode || `EXP-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -212,13 +199,13 @@ export async function createExpense(req: Request, res: Response, next: NextFunct
 
     await query(
       `INSERT INTO expenses (
-        id, expense_code, category_id, project_id, amount, date, vendor,
-        payment_method, description, receipt_url, status, added_by_user_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW())`,
+        id, expense_code, category, description, vendor, amount,
+        payment_method, reference, attachment_url, notes, date, created_by_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
-        expenseId, code, categoryId, projectId || null, parseFloat(amount),
-        date, vendor || null, paymentMethod, description || null,
-        receiptUrl, req.user!.id
+        expenseId, code, targetCat, description || targetCat || 'Expense',
+        vendor || null, parseFloat(amount), method, reference || null,
+        receiptUrl, notes || null, date, req.user?.id || null
       ]
     );
 
@@ -229,7 +216,7 @@ export async function createExpense(req: Request, res: Response, next: NextFunct
       action: 'CREATE_EXPENSE',
       module: 'FINANCE',
       recordId: expenseId,
-      newValue: { expenseCode: code, amount, categoryId },
+      newValue: { expenseCode: code, amount, category: targetCat },
       ipAddress: req.ip,
     });
 
@@ -255,21 +242,21 @@ export async function getFinancialSummary(req: Request, res: Response, next: Nex
 
     // Total Incomes
     const incomeRows = await query<any[]>(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE YEAR(date) = ?',
+      'SELECT COALESCE(SUM(amount), 0) as total FROM income WHERE YEAR(date) = ?',
       [year]
     );
     const totalIncome = parseFloat(incomeRows[0]?.total || '0');
 
     // Total General Expenses
     const expenseRows = await query<any[]>(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE YEAR(date) = ? AND status = "approved"',
+      'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE YEAR(date) = ?',
       [year]
     );
     const totalExpenses = parseFloat(expenseRows[0]?.total || '0');
 
     // Total Payroll
     const payrollRows = await query<any[]>(
-      'SELECT COALESCE(SUM(total_net), 0) as total FROM payroll WHERE year = ? AND status IN ("approved", "paid", "locked")',
+      'SELECT COALESCE(SUM(total_net), 0) as total FROM payroll_runs WHERE year = ? AND status = "finalized"',
       [year]
     );
     const payrollExpenses = parseFloat(payrollRows[0]?.total || '0');
@@ -280,12 +267,12 @@ export async function getFinancialSummary(req: Request, res: Response, next: Nex
     );
     const outstandingReceivables = parseFloat(invRows[0]?.total || '0');
 
-    const netProfit = totalIncome - totalExpenses;
+    const netProfit = totalIncome - totalExpenses - payrollExpenses;
 
     // Monthly Trends for Chart
     const monthlyIncomeRows = await query<any[]>(
       `SELECT MONTH(date) as month, SUM(amount) as income 
-       FROM incomes 
+       FROM income 
        WHERE YEAR(date) = ? 
        GROUP BY MONTH(date)`,
       [year]
@@ -294,7 +281,7 @@ export async function getFinancialSummary(req: Request, res: Response, next: Nex
     const monthlyExpenseRows = await query<any[]>(
       `SELECT MONTH(date) as month, SUM(amount) as expense 
        FROM expenses 
-       WHERE YEAR(date) = ? AND status = 'approved'
+       WHERE YEAR(date) = ?
        GROUP BY MONTH(date)`,
       [year]
     );
@@ -314,10 +301,10 @@ export async function getFinancialSummary(req: Request, res: Response, next: Nex
 
     // Expense Categories breakdown
     const categoryBreakdown = await query<any[]>(
-      `SELECT ec.name, COALESCE(SUM(exp.amount), 0) as total
-       FROM expense_categories ec
-       LEFT JOIN expenses exp ON exp.category_id = ec.id AND YEAR(exp.date) = ? AND exp.status = 'approved'
-       GROUP BY ec.id
+      `SELECT category as name, COALESCE(SUM(amount), 0) as total
+       FROM expenses
+       WHERE YEAR(date) = ?
+       GROUP BY category
        HAVING total > 0
        ORDER BY total DESC`,
       [year]

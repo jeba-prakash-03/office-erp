@@ -1,56 +1,34 @@
 import { Router } from 'express';
 import {
-  clockIn,
-  clockOut,
-  getMyTodayStatus,
-  getMyAttendanceHistory,
-  getAttendanceOverview,
-  listAttendance,
-  adminManualCorrection,
-  requestCorrection,
-  listCorrections,
-  reviewCorrection,
+  getMonthlyAttendanceSheet,
+  saveMonthlyAttendanceSheet,
+  finalizeMonthlyAttendance,
+  reopenMonthlyAttendance,
+  exportAttendanceGrid,
+  getMyAttendance,
 } from './attendance.controller';
 import { authenticate } from '../../middleware/auth';
-import { requirePermission } from '../../middleware/rbac';
+import { requirePermission, requireRole } from '../../middleware/rbac';
 
 const router = Router();
 
 router.use(authenticate);
 
-// Employee Self-Service Endpoints
-router.get('/me', getMyTodayStatus);
-router.get('/today', getMyTodayStatus);
-router.get('/status', getMyTodayStatus);
-router.get('/my-history', getMyAttendanceHistory);
+// Employee Self-Service
+router.get('/my', getMyAttendance);
+router.get('/me', getMyAttendance);
 
-router.post('/clock-in', clockIn);
-router.post('/check-in', clockIn);
-router.post('/punch-in', clockIn);
+// Admin / Super Admin Monthly Spreadsheet Grid Operations
+router.get('/sheet', requirePermission('attendance.view'), getMonthlyAttendanceSheet);
+router.get('/', requirePermission('attendance.view'), getMonthlyAttendanceSheet);
+router.post('/sheet', requirePermission('attendance.manage'), saveMonthlyAttendanceSheet);
+router.post('/save', requirePermission('attendance.manage'), saveMonthlyAttendanceSheet);
 
-router.post('/clock-out', clockOut);
-router.post('/check-out', clockOut);
-router.post('/punch-out', clockOut);
+// Lock & Finalize / Reopen Workflows
+router.post('/finalize', requirePermission('attendance.lock'), finalizeMonthlyAttendance);
+router.post('/reopen', requireRole(['super_admin', 'admin']), reopenMonthlyAttendance);
 
-// Admin / HR Management Endpoints
-router.get('/overview', getAttendanceOverview);
-router.get('/', listAttendance);
-router.post('/admin-correction', requirePermission('attendance.manage'), adminManualCorrection);
-
-// Correction Workflow Endpoints
-router.post('/correction', requestCorrection);
-router.post('/corrections', requestCorrection);
-router.get('/corrections', listCorrections);
-router.put('/corrections/:id/review', requirePermission('attendance.approve'), reviewCorrection);
-router.put('/corrections/:id/approve', requirePermission('attendance.approve'), (req, res, next) => {
-  req.body.status = 'approved';
-  return reviewCorrection(req, res, next);
-});
-router.put('/corrections/:id/reject', requirePermission('attendance.approve'), (req, res, next) => {
-  req.body.status = 'rejected';
-  return reviewCorrection(req, res, next);
-});
-router.put('/corrections/:id', requirePermission('attendance.approve'), reviewCorrection);
+// Export Grid as CSV/Excel
+router.get('/export', requirePermission('attendance.view'), exportAttendanceGrid);
 
 export default router;
-
